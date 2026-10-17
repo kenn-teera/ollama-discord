@@ -1,9 +1,10 @@
 const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
 export const MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:3b';
-const MAX_TOOL_ROUNDS = 3;
+const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX ?? 8192); // Ollama's default window is too small for tool results
+const MAX_TOOL_ROUNDS = 4;
 
 async function request(messages, tools) {
-  const body = { model: MODEL, messages, stream: false };
+  const body = { model: MODEL, messages, stream: false, options: { num_ctx: NUM_CTX } };
   if (tools?.length) body.tools = tools;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',

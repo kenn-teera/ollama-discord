@@ -1,11 +1,15 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { chat, MODEL } from './ollama.js';
 import { connectMcp, callTool, closeMcp } from './mcp.js';
+import { fetchTool, fetchUrl } from './fetch.js';
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ??
-  'You are a helpful assistant in a Discord server. Keep answers concise. Use the web search tool for current events or facts you are unsure about, and cite the source URL.';
-const tools = await connectMcp();
+  [
+    'You are a helpful assistant in a Discord server. Keep answers concise.',
+    'For current events or facts you are unsure about, use the web-search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
+    'Answer ONLY from tool results and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Never guess or invent facts.',
+  ].join(' ');
 const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT ?? 10);
 const MAX_LEN = 2000; // Discord message limit
 
@@ -56,7 +60,7 @@ client.on('messageCreate', async (msg) => {
     let reply;
     let usedTools;
     try {
-      ({ content: reply, usedTools } = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool: callTool }));
+      ({ content: reply, usedTools } = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool }));
     } finally {
       clearInterval(typing);
     }
