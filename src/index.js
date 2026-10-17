@@ -1,8 +1,11 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { chat, MODEL } from './ollama.js';
+import { connectMcp, callTool, closeMcp } from './mcp.js';
 
 const SYSTEM_PROMPT =
-  process.env.SYSTEM_PROMPT ?? 'You are a helpful assistant in a Discord server. Keep answers concise.';
+  process.env.SYSTEM_PROMPT ??
+  'You are a helpful assistant in a Discord server. Keep answers concise. Use the web search tool for current events or facts you are unsure about, and cite the source URL.';
+const tools = await connectMcp();
 const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT ?? 10);
 const MAX_LEN = 2000; // Discord message limit
 
@@ -26,7 +29,7 @@ function split(text) {
 }
 
 client.once('clientReady', (c) => {
-  console.log(`Logged in as ${c.user.tag}, using model ${MODEL}`);
+  console.log(`Logged in as ${c.user.tag}, using model ${MODEL}, tools: ${tools.map((t) => t.function.name).join(', ') || 'none'}`);
 });
 
 client.on('messageCreate', async (msg) => {
@@ -52,7 +55,7 @@ client.on('messageCreate', async (msg) => {
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
     let reply;
     try {
-      reply = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history]);
+      reply = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool: callTool });
     } finally {
       clearInterval(typing);
     }
@@ -68,5 +71,12 @@ client.on('messageCreate', async (msg) => {
     await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
   }
 });
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, async () => {
+    await closeMcp();
+    process.exit(0);
+  });
+}
 
 client.login(process.env.DISCORD_TOKEN);

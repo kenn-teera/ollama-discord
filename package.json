@@ -11,8 +11,11 @@
     "bot:stop": "./bot.sh stop",
     "dev": "node --watch --env-file=.env src/index.js"
   },
-  "engines": { "node": ">=20.6" },
+  "engines": {
+    "node": ">=20.6"
+  },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "discord.js": "^14.16.3"
   }
 }

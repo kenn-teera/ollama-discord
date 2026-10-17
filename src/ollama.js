@@ -1,13 +1,38 @@
 const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
 export const MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:3b';
+const MAX_TOOL_ROUNDS = 3;
 
-export async function chat(messages) {
+async function request(messages, tools) {
+  const body = { model: MODEL, messages, stream: false };
+  if (tools?.length) body.tools = tools;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: MODEL, messages, stream: false }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.message.content;
+  return (await res.json()).message;
+}
+
+// Runs the model; if it requests tools, executes them via runTool and feeds results back.
+export async function chat(messages, { tools, runTool } = {}) {
+  const convo = [...messages];
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const msg = await request(convo, tools);
+    if (!msg.tool_calls?.length) return msg.content;
+    convo.push(msg);
+    for (const call of msg.tool_calls) {
+      const { name, arguments: args } = call.function;
+      console.log(`tool call: ${name}`, JSON.stringify(args));
+      let result;
+      try {
+        result = await runTool(name, args);
+      } catch (err) {
+        result = `Error: ${err.message}`;
+      }
+      convo.push({ role: 'tool', tool_name: name, content: result });
+    }
+  }
+  // Out of rounds: force a final answer without tools.
+  return (await request(convo)).content;
 }
