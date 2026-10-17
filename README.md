@@ -20,3 +20,6 @@ Discord bot that answers with a local Ollama model (`qwen2.5:3b`).
 - `!reset` (after mention/in DM) clears that channel's conversation history.
 
 Config via `.env`: `OLLAMA_HOST`, `OLLAMA_MODEL`, `SYSTEM_PROMPT`, `HISTORY_LIMIT`.
+
+## Web search (MCP)
+The bot connects to an MCP search server and lets the model call it when it needs current info. Default is `@oevortex/ddg_search` (no key, but DuckDuckGo may block/rate-limit it). For reliable results use Brave Search: see the `MCP_*` examples in `.env.example`. Set `MCP_ENABLED=false` to disable.

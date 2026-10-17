@@ -3,6 +3,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const COMMAND = process.env.MCP_COMMAND ?? 'npx';
 const ARGS = (process.env.MCP_ARGS ?? '-y @oevortex/ddg_search').split(' ').filter(Boolean);
+// Env vars forwarded to the MCP server (the SDK passes none by default, so secrets such as DISCORD_TOKEN stay private).
+const ENV = Object.fromEntries(
+  (process.env.MCP_ENV_KEYS ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter((k) => k && process.env[k])
+    .map((k) => [k, process.env[k]]),
+);
 const MAX_RESULT = 4000;
 
 let client;
@@ -12,7 +20,7 @@ export async function connectMcp() {
   if (process.env.MCP_ENABLED === 'false') return [];
   try {
     client = new Client({ name: 'ollama-discord', version: '1.0.0' });
-    await client.connect(new StdioClientTransport({ command: COMMAND, args: ARGS, stderr: 'ignore' }));
+    await client.connect(new StdioClientTransport({ command: COMMAND, args: ARGS, env: ENV, stderr: 'ignore' }));
     const { tools } = await client.listTools();
     return tools.map((t) => ({
       type: 'function',
