@@ -54,12 +54,14 @@ client.on('messageCreate', async (msg) => {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
     let reply;
+    let usedTools;
     try {
-      reply = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool: callTool });
+      ({ content: reply, usedTools } = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool: callTool }));
     } finally {
       clearInterval(typing);
     }
     history.push({ role: 'assistant', content: reply });
+    if (usedTools) reply = `(search) ${reply}`;
     histories.set(msg.channelId, history.slice(-HISTORY_LIMIT));
 
     const [first, ...rest] = split(reply || '(empty response)');

@@ -15,11 +15,14 @@ async function request(messages, tools) {
 }
 
 // Runs the model; if it requests tools, executes them via runTool and feeds results back.
+// Returns { content, usedTools }.
 export async function chat(messages, { tools, runTool } = {}) {
   const convo = [...messages];
+  let usedTools = false;
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const msg = await request(convo, tools);
-    if (!msg.tool_calls?.length) return msg.content;
+    if (!msg.tool_calls?.length) return { content: msg.content, usedTools };
+    usedTools = true;
     convo.push(msg);
     for (const call of msg.tool_calls) {
       const { name, arguments: args } = call.function;
@@ -34,5 +37,5 @@ export async function chat(messages, { tools, runTool } = {}) {
     }
   }
   // Out of rounds: force a final answer without tools.
-  return (await request(convo)).content;
+  return { content: (await request(convo)).content, usedTools };
 }
