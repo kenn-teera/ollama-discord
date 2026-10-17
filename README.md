@@ -1,6 +1,6 @@
 # ollama-discord
 
-Discord bot that answers with a local Ollama model (`qwen2.5:3b`).
+Discord bot that answers with a local Ollama model (`qwen2.5:7b`).
 
 ## Setup
 1. Install Ollama (https://ollama.com) and pull the model:
