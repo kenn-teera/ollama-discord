@@ -7,7 +7,7 @@ const FILE = fileURLToPath(new URL('../config.json', import.meta.url));
 export const DEFAULT_SYSTEM_PROMPT = [
   'You are a helpful assistant in a Discord server. Keep answers concise.',
   'For current events or facts you are unsure about, use the web-search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
-  'Answer ONLY from tool results and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Write URLs in full as plain text, never as markdown links like [this link]. Never guess or invent facts.',
+  'Answer ONLY from tool results, summarised in your own words (1-3 sentences, never copy the text), and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Write URLs in full as plain text, never as markdown links like [this link]. Never guess or invent facts.',
 ].join(' ');
 
 const envDefaults = {
@@ -50,14 +50,16 @@ function load() {
   }
 }
 
-let config = { ...envDefaults };
+// Only values changed from the dashboard are saved, so later changes to .env/defaults still apply to the rest.
+const saved = {};
 for (const [k, v] of Object.entries(load())) {
   try {
-    if (k in validators) config[k] = validators[k](v);
+    if (k in validators) saved[k] = validators[k](v);
   } catch {
-    // ignore invalid saved value, keep default
+    // ignore invalid saved value
   }
 }
+let config = { ...envDefaults, ...saved };
 
 const listeners = [];
 export const onConfigChange = (fn) => listeners.push(fn);
@@ -75,7 +77,8 @@ export function updateConfig(patch) {
     }
   }
   config = next;
-  writeFileSync(`${FILE}.tmp`, JSON.stringify(config, null, 2));
+  for (const k of Object.keys(patch)) saved[k] = next[k];
+  writeFileSync(`${FILE}.tmp`, JSON.stringify(saved, null, 2));
   renameSync(`${FILE}.tmp`, FILE);
   for (const fn of listeners) fn(config);
   return config;
