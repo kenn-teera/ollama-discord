@@ -10,6 +10,10 @@ const SYSTEM_PROMPT =
     'For current events or facts you are unsure about, use the web-search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
     'Answer ONLY from tool results and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Never guess or invent facts.',
   ].join(' ');
+const mcpTools = await connectMcp();
+const tools = [...mcpTools, fetchTool];
+const runTool = (name, args) => (name === fetchTool.function.name ? fetchUrl(args) : callTool(name, args));
+
 const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT ?? 10);
 const MAX_LEN = 2000; // Discord message limit
 
