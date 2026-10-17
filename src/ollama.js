@@ -1,10 +1,12 @@
-const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
-export const MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:3b';
-const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX ?? 8192); // Ollama's default window is too small for tool results
+import { getConfig } from './config.js';
+
+export const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
 const MAX_TOOL_ROUNDS = 4;
 
+// num_ctx: Ollama's default window is too small for tool results.
 async function request(messages, tools) {
-  const body = { model: MODEL, messages, stream: false, options: { num_ctx: NUM_CTX } };
+  const { model, numCtx } = getConfig();
+  const body = { model, messages, stream: false, options: { num_ctx: numCtx } };
   if (tools?.length) body.tools = tools;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',

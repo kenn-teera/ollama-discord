@@ -1,16 +1,13 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
-import { chat, MODEL } from './ollama.js';
+import { chat } from './ollama.js';
 import { connectMcp, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
+import { getConfig, onConfigChange } from './config.js';
+import { startWeb } from './web.js';
 
-const SYSTEM_PROMPT =
-  process.env.SYSTEM_PROMPT ??
-  [
-    'You are a helpful assistant in a Discord server. Keep answers concise.',
-    'For current events or facts you are unsure about, use the web-search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
-    'Answer ONLY from tool results and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Write URLs in full as plain text, never as markdown links like [this link]. Never guess or invent facts.',
-  ].join(' ');
-const mcpTools = await connectMcp();
+const MAX_LEN = 2000; // Discord message limit
+const MAX_ACTIVITY = 50;
+
 // Small models misuse the many options of the search tool (and its AI-answer mode is unreliable): expose only query/numResults.
 const simplify = (t) =>
   t.function.name === 'web-search'
@@ -20,7 +17,16 @@ const simplify = (t) =>
         required: ['query'],
       } } }
     : t;
-const tools = [...mcpTools.map(simplify), fetchTool];
+
+let mcpTools = [];
+// Connects to the MCP search server the first time search is enabled.
+async function syncTools() {
+  if (getConfig().searchEnabled && !mcpTools.length) mcpTools = await connectMcp();
+}
+const currentTools = () => (getConfig().searchEnabled ? [...mcpTools.map(simplify), fetchTool] : []);
+await syncTools();
+onConfigChange(() => syncTools());
+
 // After a search, also read the top result so the model has real page text, not just snippets.
 async function search(name, args) {
   const results = await callTool(name, { query: args.query, numResults: args.numResults, mode: 'web' });
@@ -38,9 +44,6 @@ async function search(name, args) {
 }
 const runTool = (name, args) => (name === fetchTool.function.name ? fetchUrl(args) : search(name, args));
 
-const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT ?? 10);
-const MAX_LEN = 2000; // Discord message limit
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -53,6 +56,13 @@ const client = new Client({
 
 // channelId -> [{ role, content }]
 const histories = new Map();
+const stats = { startedAt: Date.now(), replies: 0, errors: 0 };
+const activity = []; // newest first
+
+function record(entry) {
+  activity.unshift(entry);
+  activity.length = Math.min(activity.length, MAX_ACTIVITY);
+}
 
 function split(text) {
   const chunks = [];
@@ -61,7 +71,7 @@ function split(text) {
 }
 
 client.once('clientReady', (c) => {
-  console.log(`Logged in as ${c.user.tag}, using model ${MODEL}, tools: ${tools.map((t) => t.function.name).join(', ') || 'none'}`);
+  console.log(`Logged in as ${c.user.tag}, using model ${getConfig().model}, tools: ${currentTools().map((t) => t.function.name).join(', ') || 'none'}`);
 });
 
 client.on('messageCreate', async (msg) => {
@@ -79,31 +89,59 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
+  const config = getConfig();
+  if (config.paused) {
+    await msg.reply('The bot is paused by its admin.').catch(() => {});
+    return;
+  }
+
   const history = histories.get(msg.channelId) ?? [];
   history.push({ role: 'user', content: prompt });
 
+  const started = Date.now();
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0 };
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
     let reply;
-    let usedTools;
     try {
-      ({ content: reply, usedTools } = await chat([{ role: 'system', content: SYSTEM_PROMPT }, ...history], { tools, runTool }));
+      ({ content: reply, usedTools: entry.usedTools } = await chat(
+        [{ role: 'system', content: config.systemPrompt }, ...history],
+        { tools: currentTools(), runTool },
+      ));
     } finally {
       clearInterval(typing);
     }
     history.push({ role: 'assistant', content: reply });
-    if (usedTools) reply = `(search) ${reply}`;
-    histories.set(msg.channelId, history.slice(-HISTORY_LIMIT));
+    if (entry.usedTools) reply = `(search) ${reply}`;
+    histories.set(msg.channelId, history.slice(-getConfig().historyLimit));
 
     const [first, ...rest] = split(reply || '(empty response)');
     await msg.reply(first);
     for (const part of rest) await msg.channel.send(part);
+    stats.replies++;
   } catch (err) {
     history.pop();
     console.error(err);
+    stats.errors++;
+    entry.error = err.message.slice(0, 120);
     await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
   }
+  entry.ms = Date.now() - started;
+  record(entry);
+});
+
+startWeb({
+  getStatus: () => ({
+    botTag: client.user?.tag ?? null,
+    ready: client.isReady(),
+    tools: currentTools().map((t) => t.function.name),
+    uptimeSeconds: Math.floor((Date.now() - stats.startedAt) / 1000),
+    replies: stats.replies,
+    errors: stats.errors,
+    activity,
+  }),
+  clearHistory: () => histories.clear(),
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
