@@ -1,5 +1,6 @@
 // Usage: node --env-file=.env scripts/loadtest.js [concurrency=1,2,4,8] [requestsPerLevel=8]
-import { chat, MODEL } from '../src/ollama.js';
+import { chat } from '../src/ollama.js';
+import { getConfig } from '../src/config.js';
 
 const levels = (process.argv[2] ?? '1,2,4,8').split(',').map(Number);
 const total = Number(process.argv[3] ?? 8);
@@ -38,7 +39,7 @@ async function run(concurrency) {
   };
 }
 
-console.log(`model=${MODEL} requests/level=${total}`);
+console.log(`model=${getConfig().model} requests/level=${total}`);
 await chat([{ role: 'user', content: 'hi' }]); // warm-up: load model
 const rows = [];
 for (const c of levels) rows.push(await run(c));
