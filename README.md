@@ -26,7 +26,7 @@ The bot connects to an MCP search server and lets the model call it when it need
 
 **Recommended: local SearXNG (free, no API key, needs Docker)**
 ```
-./searxng/setup.sh        # starts SearXNG on http://127.0.0.1:8888 (local only)
+./searxng/setup.sh        # first-time setup; later ./bot.sh start/stop handles it (http://127.0.0.1:8888, local only)
 ```
 Then put this in `.env` and run `./bot.sh restart`:
 ```
@@ -35,7 +35,7 @@ MCP_ARGS=-y mcp-searxng
 MCP_ENV_KEYS=SEARXNG_URL
 SEARXNG_URL=http://127.0.0.1:8888
 ```
-Stop it with `docker compose -f searxng/docker-compose.yml down`. SearXNG combines several engines; if some are blocked at your IP it uses the others.
+`./bot.sh start` starts SearXNG automatically (opening Docker Desktop if needed) and `./bot.sh stop` stops it again, as long as `SEARXNG_URL` is set in `.env`. SearXNG combines several engines; if some are blocked at your IP it uses the others.
 
 Other options (see `.env.example`): Brave Search (API key) or the default DuckDuckGo scraper (no key, often blocked). Microsoft retired the Bing Search API in August 2025. Set `MCP_ENABLED=false` to disable search.
 
