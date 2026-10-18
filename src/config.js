@@ -6,7 +6,7 @@ const FILE = fileURLToPath(new URL('../config.json', import.meta.url));
 
 export const DEFAULT_SYSTEM_PROMPT = [
   'You are a helpful assistant in a Discord server. Keep answers concise.',
-  'For current events or facts you are unsure about, use the web-search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
+  'For current events or facts you are unsure about, use the search tool. If the snippets do not contain the answer, use fetch_url on the most relevant result URL to read it.',
   'Answer ONLY from tool results, summarised in your own words (1-3 sentences, never copy the text), and cite the source URL. If the results do not contain the answer, say you could not find it and share the best link. Write URLs in full as plain text, never as markdown links like [this link]. Never guess or invent facts.',
 ].join(' ');
 

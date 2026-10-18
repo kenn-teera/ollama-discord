@@ -9,27 +9,41 @@ const MAX_LEN = 2000; // Discord message limit
 const MAX_ACTIVITY = 50;
 
 // Small models misuse the many options of the search tool (and its AI-answer mode is unreliable): expose only query/numResults.
-const simplify = (t) =>
-  t.function.name === 'web-search'
-    ? { ...t, function: { ...t.function, parameters: {
-        type: 'object',
-        properties: { query: { type: 'string', description: 'The search query' }, numResults: { type: 'integer', description: 'Number of results (1-5)' } },
-        required: ['query'],
-      } } }
-    : t;
+const simplify = (t) => ({
+  ...t,
+  function: { ...t.function, parameters: {
+    type: 'object',
+    properties: { query: { type: 'string', description: 'The search query' }, numResults: { type: 'integer', description: 'Number of results (1-5)' } },
+    required: ['query'],
+  } },
+});
+// Works with any MCP search server (web-search, searxng_web_search, ...); other MCP tools are ignored (fetch_url covers page reading).
+const isSearchTool = (t) => /web.?search/.test(t.function.name);
 
 let mcpTools = [];
 // Connects to the MCP search server the first time search is enabled.
 async function syncTools() {
-  if (getConfig().searchEnabled && !mcpTools.length) mcpTools = await connectMcp();
+  if (getConfig().searchEnabled && !mcpTools.length) mcpTools = (await connectMcp()).filter(isSearchTool);
 }
 const currentTools = () => (getConfig().searchEnabled ? [...mcpTools.map(simplify), fetchTool] : []);
 await syncTools();
 onConfigChange(() => syncTools());
 
 // After a search, also read the top result so the model has real page text, not just snippets.
+// Maps our simple arguments onto whatever parameter names the MCP search tool declares.
+function searchArgs(name, args) {
+  const props = mcpTools.find((t) => t.function.name === name)?.function.parameters.properties ?? {};
+  const out = { query: args.query };
+  if (args.numResults) {
+    if ('numResults' in props) out.numResults = args.numResults;
+    else if ('num_results' in props) out.num_results = args.numResults;
+  }
+  if ('mode' in props) out.mode = 'web';
+  return out;
+}
+
 async function search(name, args) {
-  const results = await callTool(name, { query: args.query, numResults: args.numResults, mode: 'web' });
+  const results = await callTool(name, searchArgs(name, args));
   if (/^Error|Search failed/i.test(results)) {
     return 'SEARCH FAILED: the search service is temporarily unavailable. Do not answer from memory. Tell the user you could not search right now and to try again in a minute.';
   }

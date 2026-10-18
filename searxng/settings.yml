@@ -1,0 +1,9 @@
+# Minimal SearXNG config: defaults + JSON output (needed by the bot) and no rate limiter (local use only).
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json
