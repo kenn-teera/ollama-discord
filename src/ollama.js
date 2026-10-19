@@ -39,8 +39,8 @@ export const supportsThinking = async (model) => (await capabilities(model)).inc
 
 // `usage` (optional) accumulates Ollama's token counts: input = prompt tokens, output = generated tokens.
 async function request(messages, tools, usage) {
-  const { model, numCtx, temperature, thinking } = getConfig();
-  const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature } };
+  const { model, numCtx, temperature, thinking, topP, numPredict, keepAlive } = getConfig();
+  const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature, top_p: topP, ...(numPredict > 0 && { num_predict: numPredict }) }, keep_alive: keepAlive };
   if (tools?.length && (await supportsTools(model))) body.tools = tools;
   // Thinking models reason before answering (slow, many extra tokens); default is off for a chat bot.
   if (await supportsThinking(model)) body.think = thinking;

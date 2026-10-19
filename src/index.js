@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials } from 'discord.js';
+import { ActivityType, Client, GatewayIntentBits, Partials } from 'discord.js';
 import { chat } from './ollama.js';
 import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
@@ -90,7 +90,20 @@ function split(text) {
 // 'user': each person has their own conversation in a channel; 'channel': everyone in the channel shares one.
 const historyKey = (msg) => (getConfig().historyScope === 'user' ? `${msg.channelId}:${msg.author.id}` : msg.channelId);
 
+// Custom Discord status text; only sent when it changed (Discord rate-limits presence updates).
+let shownStatus = null;
+function applyStatus() {
+  const text = getConfig().botStatus;
+  if (!client.isReady() || text === shownStatus) return;
+  shownStatus = text;
+  client.user.setPresence({ activities: text ? [{ name: 'custom', type: ActivityType.Custom, state: text }] : [] });
+}
+onConfigChange(applyStatus);
+
+const lastAsked = new Map(); // userId -> time of last accepted question, for the cooldown
+
 client.once('clientReady', (c) => {
+  applyStatus();
   console.log(`Logged in as ${c.user.tag}, using model ${getConfig().model}, tools: ${currentTools().map((t) => t.function.name).join(', ') || 'none'}`);
 });
 
@@ -99,6 +112,8 @@ client.on('messageCreate', async (msg) => {
   const isDM = !msg.guild;
   const mentioned = msg.mentions.has(client.user);
   if (!isDM && !mentioned) return;
+  const { allowedChannels } = getConfig();
+  if (!isDM && allowedChannels.length && !allowedChannels.includes(msg.channelId)) return; // silently ignore other channels
 
   const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
   if (!prompt) return;
@@ -114,6 +129,13 @@ client.on('messageCreate', async (msg) => {
     await msg.reply('The bot is paused by its admin.').catch(() => {});
     return;
   }
+
+  const wait = Math.ceil(((lastAsked.get(msg.author.id) ?? 0) + config.userCooldown * 1000 - Date.now()) / 1000);
+  if (wait > 0) {
+    await msg.reply(`Please wait ${wait}s before asking again.`).catch(() => {});
+    return;
+  }
+  lastAsked.set(msg.author.id, Date.now());
 
   const key = historyKey(msg); // fixed now so a settings change mid-reply can't split the conversation
   const history = histories.get(key) ?? [];
@@ -138,7 +160,7 @@ client.on('messageCreate', async (msg) => {
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
     history.push({ role: 'assistant', content: reply });
-    if (entry.usedTools) reply = `(search) ${reply}`;
+    if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
     histories.set(key, history.slice(-getConfig().historyLimit));
 
     const [first, ...rest] = split(reply || '(empty response)');

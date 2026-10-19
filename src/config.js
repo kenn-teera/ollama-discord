@@ -17,6 +17,13 @@ const envDefaults = {
   historyLimit: Number(process.env.HISTORY_LIMIT ?? 10),
   historyScope: process.env.HISTORY_SCOPE ?? 'user',
   thinking: process.env.OLLAMA_THINKING === 'true',
+  topP: Number(process.env.OLLAMA_TOP_P ?? 0.9),
+  numPredict: Number(process.env.OLLAMA_NUM_PREDICT ?? 0), // max tokens generated per call, 0 = no limit
+  keepAlive: process.env.OLLAMA_KEEP_ALIVE ?? '5m', // how long Ollama keeps the model in memory after the last reply
+  allowedChannels: [], // channel IDs the bot answers in (DMs always allowed); empty = every channel
+  userCooldown: 0, // seconds a user must wait between questions, 0 = off
+  showSearchTag: true, // prefix replies that used tools with "(search)"
+  botStatus: '', // custom Discord status text, empty = none
   numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
   temperature: Number(process.env.OLLAMA_TEMPERATURE ?? 0.8),
   maxToolRounds: Number(process.env.MAX_TOOL_ROUNDS ?? 4),
@@ -55,6 +62,24 @@ const validators = {
   temperature: num(0, 2),
   maxToolRounds: int(1, 8),
   thinking: bool,
+  topP: num(0, 1),
+  numPredict: int(0, 8192),
+  keepAlive: (v) => {
+    if (typeof v !== 'string' || !/^(-1|0|\d{1,4}[smh])$/.test(v)) throw new Error('use a duration like 30s, 5m, 2h, 0 (unload now) or -1 (never)');
+    return v;
+  },
+  allowedChannels: (v) => {
+    if (!Array.isArray(v) || v.length > 50 || v.some((id) => typeof id !== 'string' || !/^\d{15,25}$/.test(id))) {
+      throw new Error('must be up to 50 Discord channel IDs (numbers)');
+    }
+    return [...new Set(v)];
+  },
+  userCooldown: int(0, 600),
+  showSearchTag: bool,
+  botStatus: (v) => {
+    if (typeof v !== 'string' || v.length > 128) throw new Error('must be at most 128 characters');
+    return v.trim();
+  },
   searchEnabled: bool,
   // Ids only: the commands behind them are fixed on the server (see mcp.js), never taken from the browser.
   mcpServers: (v) => {
