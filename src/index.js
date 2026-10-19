@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { chat } from './ollama.js';
-import { connectMcp, callTool, closeMcp } from './mcp.js';
+import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
 import { startWeb } from './web.js';
@@ -17,22 +17,22 @@ const simplify = (t) => ({
     required: ['query'],
   } },
 });
-// Works with any MCP search server (web-search, searxng_web_search, ...); other MCP tools are ignored (fetch_url covers page reading).
+// Works with any MCP search server (web-search, searxng_web_search, ...); results are summarised with the top page read in full.
 const isSearchTool = (t) => /web.?search/.test(t.function.name);
 
-let mcpTools = [];
-// Connects to the MCP search server the first time search is enabled.
-async function syncTools() {
-  if (getConfig().searchEnabled && !mcpTools.length) mcpTools = (await connectMcp()).filter(isSearchTool);
-}
-const currentTools = () => (getConfig().searchEnabled ? [...mcpTools.map(simplify), fetchTool] : []);
+// Connects the MCP servers selected in the dashboard (only when tools are enabled).
+const syncTools = (opts) => syncMcp(getConfig().searchEnabled ? getConfig().mcpServers : [], opts);
+const searchTools = () => mcpTools().filter(isSearchTool);
+// Search tools get the simplified schema; every other tool of a selected MCP server is passed to the model unchanged.
+const otherTools = () => mcpTools().filter((t) => !isSearchTool(t));
+const currentTools = () => (getConfig().searchEnabled ? [...searchTools().map(simplify), ...otherTools(), fetchTool] : []);
 await syncTools();
 onConfigChange(() => syncTools());
 
 // After a search, also read the top result so the model has real page text, not just snippets.
 // Maps our simple arguments onto whatever parameter names the MCP search tool declares.
 function searchArgs(name, args) {
-  const props = mcpTools.find((t) => t.function.name === name)?.function.parameters.properties ?? {};
+  const props = searchTools().find((t) => t.function.name === name)?.function.parameters.properties ?? {};
   const out = { query: args.query };
   if (args.numResults) {
     if ('numResults' in props) out.numResults = args.numResults;
@@ -56,7 +56,10 @@ async function search(name, args) {
     return results;
   }
 }
-const runTool = (name, args) => (name === fetchTool.function.name ? fetchUrl(args) : search(name, args));
+const runTool = (name, args) => {
+  if (name === fetchTool.function.name) return fetchUrl(args);
+  return searchTools().some((t) => t.function.name === name) ? search(name, args) : callTool(name, args);
+};
 
 const client = new Client({
   intents: [
@@ -150,12 +153,14 @@ startWeb({
     botTag: client.user?.tag ?? null,
     ready: client.isReady(),
     tools: currentTools().map((t) => t.function.name),
+    mcpServers: mcpStatus(getConfig().mcpServers, getConfig().searchEnabled),
     uptimeSeconds: Math.floor((Date.now() - stats.startedAt) / 1000),
     replies: stats.replies,
     errors: stats.errors,
     activity,
   }),
   clearHistory: () => histories.clear(),
+  reconnectMcp: () => syncTools({ force: true }),
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

@@ -32,6 +32,13 @@
   table { width:100%; border-collapse:collapse; font-size:13px; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--muted); font-weight:600; } .empty { color:var(--muted); padding:8px 0; }
   .scroll { overflow-x:auto; }
+  .mcp { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-top:8px; display:flex; gap:10px; align-items:flex-start; }
+  .mcp input { width:18px; height:18px; margin-top:3px; flex:none; }
+  .mcp .body { flex:1; min-width:0; } .mcp b { font-weight:600; }
+  .mcp .desc { color:var(--muted); font-size:13px; } .mcp .tools { font-size:12px; color:var(--muted); word-break:break-word; }
+  .badge { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); margin-left:6px; color:var(--muted); }
+  .badge.connected { color:var(--ok); border-color:var(--ok); } .badge.error { color:var(--bad); border-color:var(--bad); }
+  .mcperr { color:var(--bad); font-size:13px; }
 </style>
 </head>
 <body>
@@ -53,10 +60,21 @@
 
     <div class="row">
       <div><label for="historyLimit">History length <span class="hint">(messages kept per channel)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
+      <div><label for="temperature">Temperature <span class="hint">(0 = precise, 2 = creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
       <div><label for="numCtx">Context size <span class="hint">(tokens; more = slower, more RAM)</span></label><input type="number" id="numCtx" min="1024" max="32768" step="1024"></div>
     </div>
 
-    <div class="switch"><input type="checkbox" id="searchEnabled"><label for="searchEnabled" style="margin:0">Web search enabled</label></div>
+    <div class="row">
+      <div><label for="maxToolRounds">Max tool rounds <span class="hint">(tool calls per reply before it must answer)</span></label><input type="number" id="maxToolRounds" min="1" max="8"></div>
+    </div>
+
+    <div class="switch"><input type="checkbox" id="searchEnabled"><label for="searchEnabled" style="margin:0">Tools enabled <span class="hint">(search, page fetch and the MCP servers below)</span></label></div>
+
+    <label>MCP servers <span class="hint">— tick the ones the bot may use; apply on Save</span></label>
+    <div id="mcpList"></div>
+    <div class="actions" style="margin-top:8px"><button type="button" id="reconnect">Reconnect failed servers</button></div>
+    <div class="hint" style="margin-top:6px">Add your own servers in <code>mcp-servers.json</code> (see README); commands are never entered or run from this page.</div>
+
     <div class="switch"><input type="checkbox" id="paused"><label for="paused" style="margin:0">Pause bot <span class="hint">(it replies that it is paused)</span></label></div>
 
     <div class="actions">
@@ -85,13 +103,31 @@ function stat(label, value, dot) {
 function fmtUptime(s) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; }
 function flash(text, ok) { const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err'; setTimeout(() => { m.textContent = ''; }, 4000); }
 
+// Rebuilds the server list. Checkbox state is kept from the server only when the form is being refilled, so unsaved ticks survive the 5s refresh.
+function renderMcp(list, fillForm) {
+  const ticked = new Set(fillForm ? list.filter((m) => m.selected).map((m) => m.id) : [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value));
+  $('mcpList').replaceChildren(...list.map((m) => {
+    const row = el('label', undefined, 'mcp'), box = el('input'), body = el('div', undefined, 'body'), head = el('div');
+    box.type = 'checkbox'; box.value = m.id; box.checked = ticked.has(m.id);
+    row.style.fontWeight = '400'; row.style.margin = '8px 0 0';
+    const label = { off: 'off', connecting: 'connecting…', connected: 'connected', error: 'error' }[m.status];
+    head.append(el('b', m.label), el('span', label, 'badge ' + m.status));
+    body.append(head);
+    if (m.description) body.append(el('div', m.description, 'desc'));
+    if (m.status === 'error' && m.error) body.append(el('div', m.error, 'mcperr'));
+    if (m.tools.length) body.append(el('div', 'Tools: ' + m.tools.join(', '), 'tools'));
+    row.append(box, body);
+    return row;
+  }));
+}
+
 function render(s, fillForm) {
   defaultPrompt = s.defaultSystemPrompt;
   $('who').textContent = s.botTag ? `Logged in as ${s.botTag}` : 'Discord: not connected yet';
   const stats = $('stats'); stats.replaceChildren(
     stat('Discord', s.ready ? 'Online' : 'Offline', s.ready),
     stat('Ollama', s.ollamaOnline ? 'Online' : 'Unreachable', s.ollamaOnline),
-    stat('Search tools', s.tools.length ? s.tools.join(', ') : 'none'),
+    stat('Tools', s.tools.length ? s.tools.join(', ') : 'none'),
     stat('Uptime', fmtUptime(s.uptimeSeconds)),
     stat('Replies / errors', `${s.replies} / ${s.errors}`),
   );
@@ -103,9 +139,12 @@ function render(s, fillForm) {
     $('systemPrompt').value = s.config.systemPrompt;
     $('historyLimit').value = s.config.historyLimit;
     $('numCtx').value = s.config.numCtx;
+    $('temperature').value = s.config.temperature;
+    $('maxToolRounds').value = s.config.maxToolRounds;
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
   }
+  renderMcp(s.mcpServers, fillForm);
   const box = $('activity');
   if (!s.activity.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
   const t = el('table'), head = el('tr');
@@ -135,12 +174,19 @@ $('form').addEventListener('submit', async (e) => {
     await api('/api/config', {
       model: $('model').value, systemPrompt: $('systemPrompt').value,
       historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
+      temperature: Number($('temperature').value), maxToolRounds: Number($('maxToolRounds').value),
+      mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
       searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
     });
     dirty = false; flash('Saved', true); await refresh(true);
   } catch (err) { flash(err.message, false); }
   $('save').disabled = false;
 });
+$('reconnect').onclick = async () => {
+  $('reconnect').disabled = true;
+  try { await api('/api/mcp-reconnect', {}); flash('Reconnected', true); await refresh(false); } catch (err) { flash(err.message, false); }
+  $('reconnect').disabled = false;
+};
 $('clear').onclick = async () => {
   if (!confirm('Clear conversation history for every channel?')) return;
   try { await api('/api/clear-history', {}); flash('History cleared', true); } catch (err) { flash(err.message, false); }

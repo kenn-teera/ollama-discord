@@ -43,7 +43,7 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString() || '{}');
 }
 
-// api: { getStatus(), clearHistory() }
+// api: { getStatus(), clearHistory(), reconnectMcp() }
 export function startWeb(api) {
   if (!LOOPBACK.includes(HOST) && !PASSWORD) {
     console.error(`Dashboard disabled: WEB_HOST=${HOST} is not loopback, so WEB_PASSWORD is required.`);
@@ -94,6 +94,10 @@ export function startWeb(api) {
             }
           }
           return send(res, 200, { config: updateConfig(patch) });
+        }
+        if (url.pathname === '/api/mcp-reconnect') {
+          await api.reconnectMcp();
+          return send(res, 200, { mcpServers: api.getStatus().mcpServers });
         }
         if (url.pathname === '/api/clear-history') {
           api.clearHistory();

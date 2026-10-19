@@ -1,7 +1,6 @@
 import { getConfig } from './config.js';
 
 export const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
-const MAX_TOOL_ROUNDS = 4;
 
 // Added after tool results, whatever the system prompt says: small models tend to paste the raw text.
 const ANSWER_INSTRUCTION = [
@@ -14,8 +13,8 @@ const ANSWER_INSTRUCTION = [
 
 // num_ctx: Ollama's default window is too small for tool results.
 async function request(messages, tools) {
-  const { model, numCtx } = getConfig();
-  const body = { model, messages, stream: false, options: { num_ctx: numCtx } };
+  const { model, numCtx, temperature } = getConfig();
+  const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature } };
   if (tools?.length) body.tools = tools;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',
@@ -31,7 +30,8 @@ async function request(messages, tools) {
 export async function chat(messages, { tools, runTool } = {}) {
   const convo = [...messages];
   let usedTools = false;
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+  const maxRounds = getConfig().maxToolRounds;
+  for (let round = 0; round < maxRounds; round++) {
     const msg = await request(convo, tools);
     if (!msg.tool_calls?.length) return { content: msg.content, usedTools };
     usedTools = true;
