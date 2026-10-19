@@ -9,7 +9,8 @@
     "loadtest": "node --env-file=.env scripts/loadtest.js",
     "bot:start": "./bot.sh start",
     "bot:stop": "./bot.sh stop",
-    "dev": "node --watch --env-file=.env src/index.js"
+    "dev": "node --watch --env-file=.env src/index.js",
+    "test": "node --test test/"
   },
   "engines": {
     "node": ">=20.6"
