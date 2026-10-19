@@ -43,7 +43,7 @@ A Discord bot that answers with a **local** Ollama model: no cloud API, no subsc
 
 An unknown `--something` gets a hint instead of being sent to the model.
 
-**Conversations.** Each person has their own conversation, even in a shared channel. To share one conversation per channel instead, set `HISTORY_SCOPE=channel` in `.env` or change "History kept" in the dashboard. The bot remembers the last `HISTORY_LIMIT` messages (default 10). Replies that used a tool start with `(search)`; you can turn that tag off in the dashboard.
+**Conversations.** In a server the bot answers only when it is addressed directly: @bot (or its own role), not @everyone, @here or other roles. Each person has their own conversation, even in a shared channel. Questions within one conversation are answered one at a time, in order, and a `--reset` while the bot is still answering discards that answer instead of bringing the old history back. The bot never pings @everyone, @here or roles in its replies (only the person it is replying to is notified). To share one conversation per channel instead, set `HISTORY_SCOPE=channel` in `.env` or change "History kept" in the dashboard. The bot remembers the last `HISTORY_LIMIT` messages (default 10). Replies that used a tool start with `(search)`; you can turn that tag off in the dashboard.
 
 **Current date.** Models guess the year from their training data (a bot asked about "the next F1 race" will happily search for 2024 in 2026). So the bot puts today's date next to each question it sends to the model, for example `[Today is Monday, October 19, 2026] what the next f1 race`. It is added only to the copy sent to the model, never stored in the history. Turn it off with "Tell the model today's date" in the dashboard or `INJECT_DATE=false`.
 
@@ -91,7 +91,7 @@ cp mcp-servers.example.json mcp-servers.json   # adjust --local-timezone if you 
 Then tick **Time** in the MCP tools tab and Save. It provides `get_current_time` and `convert_time`, so questions like "what time is it in Tokyo?" are answered instantly instead of by web search. To make the bot use it, say so in the system prompt, for example: "For the current time or timezone questions, use the time tool (default timezone Asia/Bangkok). Use web search only for other current events."
 
 ## Web dashboard
-Open http://127.0.0.1:8787 while the bot is running. Changes apply immediately and are saved to `config.json`, which overrides `.env` (delete it to go back to the `.env` values). A bar with **Save changes** and **Discard** appears when you have unsaved edits.
+Open http://127.0.0.1:8787 while the bot is running. Changes apply immediately and are saved to `config.json`, which overrides `.env` (delete it to go back to the `.env` values). Only settings you actually change are written there, so the rest keep following `.env` and the defaults. A bar with **Save changes** and **Discard** appears when you have unsaved edits.
 
 ### Settings
 <img src="docs/screenshots/settings.png" alt="Settings tab" width="640">
@@ -143,7 +143,7 @@ Each file rotates at 2 MB and keeps two older copies (`.1`, `.2`), so disk use s
 ./bot.sh status
 ./bot.sh logs      # follow bot.log
 ```
-`npm start` runs it in the foreground; `npm run dev` restarts it when the code changes. `npm run loadtest [concurrency] [requests]` measures reply latency at different numbers of simultaneous questions.
+`npm start` runs it in the foreground; `npm run dev` restarts it when the code changes. `npm test` runs the automated tests. `npm run loadtest [concurrency] [requests]` measures reply latency at different numbers of simultaneous questions.
 
 ## Configuration
 Precedence: the dashboard (`config.json`) over `.env` over the defaults. Everything the dashboard can change is listed there; these `.env` variables set the starting values:
@@ -162,6 +162,7 @@ Precedence: the dashboard (`config.json`) over `.env` over the defaults. Everyth
 | `OLLAMA_NUM_PREDICT` | `0` | max generated tokens per model call, 0 = no limit |
 | `OLLAMA_KEEP_ALIVE` | `5m` | how long Ollama keeps the model loaded (`-1` = forever) |
 | `OLLAMA_THINKING` | `false` | let thinking models reason first |
+| `OLLAMA_TIMEOUT_SECONDS` | `600` | give up on one model call after this long (a slow big model gets this long, not just 5 minutes) |
 | `MAX_TOOL_ROUNDS` | `4` | tool calls a reply may use before it must answer |
 | `INJECT_DATE` | `true` | put today's date next to each question |
 | `MCP_ENABLED` | `true` | `false` turns search and all tools off |
@@ -174,7 +175,8 @@ Dashboard-only settings: allowed channels, cooldown, Discord status text, chat l
 - **Replies are slow.** Open the Monitor tab. Long "reading prompt" bars mean the prompt is too big: untick duplicate MCP servers (every tool definition is sent with every request), pick a smaller model, lower "Tool rounds", or keep the context size modest. A nearly full swap means the Mac is short on memory: close other apps or use a smaller model.
 - **The bot searches the wrong year.** Make sure "Tell the model today's date" is on.
 - **`does not support tools` from Ollama.** The model has no tool calling. The bot detects this and skips tools for it; choose another model if you want search.
-- **The bot does not answer.** Check that Message Content Intent is enabled, the bot is not paused, the channel is allowed (Settings → Allowed channels), and you are not within the cooldown. `./bot.sh status` and the bot log in the Monitor tab show errors.
+- **"The model took too long to answer".** One model call exceeded `OLLAMA_TIMEOUT_SECONDS` (10 minutes by default). Use a smaller model or a smaller prompt (fewer tools), or raise the limit.
+- **The bot does not answer.** Check that you @mention the bot itself (not @everyone or a role), that Message Content Intent is enabled, the bot is not paused, the channel is allowed (Settings → Allowed channels), and you are not within the cooldown. `./bot.sh status` and the bot log in the Monitor tab show errors.
 - **Search fails.** `./bot.sh status` should show `searxng: up`. Docker must be running; `./bot.sh restart` starts it.
 - **Investigating an error.** Monitor tab → Logs → Bot log → "Errors only"; the Chat log shows the question, the tools it used and the error.
 
@@ -184,10 +186,12 @@ Dashboard-only settings: allowed channels, cooldown, Discord status text, chat l
 | `src/index.js` | the Discord client, commands and message handling |
 | `src/ollama.js` | talks to Ollama, runs the tool loop, records timing and tokens |
 | `src/mcp.js` | starts and manages MCP servers |
-| `src/fetch.js` | the `fetch_url` tool (blocks private addresses) |
+| `src/fetch.js` | the `fetch_url` tool: refuses local and private addresses (checked on the connection itself, so DNS tricks don't get around it) and turns pages into text |
+| `src/conversations.js`, `src/mentions.js`, `src/search.js` | per-conversation history and ordering, who the bot answers and what it may ping, search-failure detection |
 | `src/config.js` | settings: validation, defaults, saving to `config.json` |
 | `src/web.js`, `src/dashboard.html` | the dashboard server and page |
 | `src/logger.js`, `src/system.js` | the log files, and host stats for the Monitor tab |
 | `searxng/` | Docker setup for the local search engine |
 | `scripts/loadtest.js` | latency test |
+| `test/` | automated tests (`npm test`; no network or Discord needed, and they never touch your `config.json` or logs) |
 | `docs/screenshots/` | the dashboard images above (demo data) |
