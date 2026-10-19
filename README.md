@@ -41,7 +41,7 @@ SEARXNG_URL=http://127.0.0.1:8888
 Set `MCP_ENABLED=false` to disable search and other tools.
 
 ## Web dashboard
-Open http://127.0.0.1:8787 while the bot is running to change the model (from your installed Ollama models), system prompt, history length, context size, temperature, max tool rounds, which **MCP servers** the bot uses, tools on/off, advanced model options (top-p, max reply tokens, keep-alive), which channels the bot answers in, a per-user cooldown, the bot's Discord status text, pause the bot, clear history, and see recent activity. Changes apply immediately and are saved to `config.json` (which overrides `.env`; delete it to go back to `.env` values).
+Open http://127.0.0.1:8787 while the bot is running to change the model (from your installed Ollama models), system prompt, history length, context size, temperature, max tool rounds, which **MCP servers** the bot uses, tools on/off, advanced model options (top-p, max reply tokens, keep-alive), which channels the bot answers in, a per-user cooldown, the bot's Discord status text, pause the bot, clear history, and see recent activity, including which tools each reply used (name, what it was called with, how long it took, and whether it failed). Changes apply immediately and are saved to `config.json` (which overrides `.env`; delete it to go back to `.env` values).
 
 ![Settings tab: model, system prompt, limits and controls](docs/screenshots/settings.png)
 

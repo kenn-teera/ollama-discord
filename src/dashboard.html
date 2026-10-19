@@ -63,6 +63,7 @@
   .logbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:10px 0; } .logbar select, .logbar input[type=text] { width:auto; padding:6px 8px; }
   .logbar input[type=text] { flex:1; min-width:140px; } .logbar label { margin:0; font-weight:400; font-size:13px; display:flex; align-items:center; gap:5px; }
   .lvl { font-size:12px; padding:1px 7px; border-radius:8px; border:1px solid var(--line); color:var(--muted); } .lvl.warn { color:var(--warn); border-color:var(--warn); } .lvl.error { color:var(--bad); border-color:var(--bad); }
+  .tc { font-size:12.5px; line-height:1.45; } .tc div { overflow-wrap:anywhere; } .tc b { font-weight:600; } .tc .tmut { color:var(--muted); } .tc .tbad, td .tbad { color:var(--bad); font-size:12px; }
   td.mono { font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
   tr.row { cursor:pointer; } tr.row:hover td { background:var(--bg); }
   #bar { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; transform:translateY(110%); transition:transform .15s; }
@@ -243,6 +244,22 @@ function renderMcp(list, fillForm) {
   }));
 }
 
+// One line per tool call: name, what it was called with (query / URL...), how long it took, and "failed" if it errored.
+function toolCell(calls) {
+  const td = el('td', undefined, 'tc');
+  if (!calls?.length) { td.textContent = '—'; return td; }
+  for (const c of calls) {
+    const line = el('div'), name = el('b', c.name);
+    line.append(name);
+    if (c.arg) line.append(el('span', ' · ' + (c.arg.length > 50 ? c.arg.slice(0, 50) + '…' : c.arg), 'tmut'));
+    line.title = `${c.name}${c.arg ? ' · ' + c.arg : ''} · ${sec(c.ms)}${c.failed ? ' · FAILED' : ''}`;
+    line.append(el('span', ` · ${sec(c.ms)}`, 'tmut'));
+    if (c.failed) line.append(el('span', ' · failed', 'tbad'));
+    td.append(line);
+  }
+  return td;
+}
+
 function renderActivity(list) {
   const box = $('activity');
   if (!list.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
@@ -251,7 +268,7 @@ function renderActivity(list) {
   t.append(head);
   for (const a of list) {
     const r = el('tr');
-    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.error ? '—' : `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}`), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok', a.error ? 'bad' : ''));
+    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), (() => { const td = el('td', a.prompt); if (a.error) td.append(el('div', a.error, 'tbad'), ); return td; })(), el('td', a.error ? '—' : `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}`), toolCell(a.toolCalls), el('td', (a.ms / 1000).toFixed(1) + 's'), (() => { const td = el('td'); td.append(a.error ? el('span', 'error', 'lvl error') : document.createTextNode('ok')); return td; })());
     t.append(r);
   }
   box.replaceChildren(t);
@@ -365,7 +382,7 @@ function renderMonitor(mon) {
   } else box.replaceChildren();
 
   const rows = done.slice(0, 10), t = el('table'), head = el('tr');
-  for (const h of ['Time', 'Total', 'Load', 'Prompt', 'Answer', 'Tools', 'Calls', 'Tokens in']) head.append(el('th', h));
+  for (const h of ['Time', 'Total', 'Load', 'Prompt', 'Answer', 'Tool time', 'Calls', 'Tokens in']) head.append(el('th', h));
   t.append(head);
   for (const a of rows) {
     const p = parts(a), r = el('tr');
@@ -398,7 +415,7 @@ function renderLog(type, entries) {
     if (type === 'bot') t.append(logRow([when, (() => { const td = el('td'); td.append(el('span', e.level, 'lvl ' + e.level)); return td; })(), longCell(e.msg, 'mono')]));
     else t.append(logRow([
       when, el('td', e.kind === 'command' ? e.user + ' (cmd)' : e.user), longCell(e.prompt), longCell(e.reply ?? (e.error ? 'ERROR: ' + e.error : '—')),
-      el('td', (e.tools ?? []).join(', ') || '—'), el('td', e.ms != null ? sec(e.ms) : '—'),
+      e.toolCalls ? toolCell(e.toolCalls) : el('td', (e.tools ?? []).join(', ') || '—'), el('td', e.ms != null ? sec(e.ms) : '—'),
       el('td', e.inputTokens != null ? `${e.inputTokens.toLocaleString()} / ${e.outputTokens.toLocaleString()}` : '—'),
       (() => { const td = el('td'); td.append(e.error ? el('span', 'error', 'lvl error') : document.createTextNode('ok')); return td; })(),
     ]));

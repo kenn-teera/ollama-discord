@@ -1,5 +1,5 @@
 import { ActivityType, Client, GatewayIntentBits, Partials } from 'discord.js';
-import { chat } from './ollama.js';
+import { chat, newUsage } from './ollama.js';
 import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
@@ -185,18 +185,18 @@ client.on('messageCreate', async (msg) => {
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
-  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null };
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null, toolCalls: [] };
   let answer = null; // the model's reply (without the (search) tag), for the chat log
-  let toolNames = [];
+  const usage = newUsage();
   let errorText = null;
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
-    let reply, usage;
+    let reply;
     try {
-      ({ content: reply, usedTools: entry.usedTools, usage } = await chat(
+      ({ content: reply, usedTools: entry.usedTools } = await chat(
         [{ role: 'system', content: config.systemPrompt }, ...history],
-        { tools: currentTools(), runTool },
+        { tools: currentTools(), runTool, usage },
       ));
     } finally {
       clearInterval(typing);
@@ -207,7 +207,6 @@ client.on('messageCreate', async (msg) => {
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
     answer = reply;
-    toolNames = usage.toolNames;
     history.push({ role: 'assistant', content: reply });
     if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
     histories.set(key, history.slice(-getConfig().historyLimit));
@@ -224,13 +223,14 @@ client.on('messageCreate', async (msg) => {
     errorText = err.message.slice(0, 500);
     await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
   }
+  entry.toolCalls = usage.toolCalls; // kept even when the reply failed, to see what ran before the error
   entry.ms = Date.now() - started;
   record(entry);
   if (config.logChat) {
     logChat({
       time: started, kind: 'chat', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM,
       prompt: prompt.slice(0, 2000), reply: answer?.slice(0, 4000) ?? null, ms: entry.ms,
-      inputTokens: entry.inputTokens, outputTokens: entry.outputTokens, calls: entry.timing?.calls ?? 0, tools: toolNames, error: errorText,
+      inputTokens: entry.inputTokens, outputTokens: entry.outputTokens, calls: entry.timing?.calls ?? 0, tools: usage.toolCalls.map((c) => c.name), toolCalls: usage.toolCalls, error: errorText,
     });
   }
 });
