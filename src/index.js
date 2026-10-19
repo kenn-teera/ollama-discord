@@ -71,7 +71,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-// channelId -> [{ role, content }]
+// history key -> [{ role, content }]; the key is channelId, or channelId:userId when historyScope is 'user'
 const histories = new Map();
 const stats = { startedAt: Date.now(), replies: 0, errors: 0, inputTokens: 0, outputTokens: 0 };
 const activity = []; // newest first
@@ -87,6 +87,9 @@ function split(text) {
   return chunks;
 }
 
+// 'user': each person has their own conversation in a channel; 'channel': everyone in the channel shares one.
+const historyKey = (msg) => (getConfig().historyScope === 'user' ? `${msg.channelId}:${msg.author.id}` : msg.channelId);
+
 client.once('clientReady', (c) => {
   console.log(`Logged in as ${c.user.tag}, using model ${getConfig().model}, tools: ${currentTools().map((t) => t.function.name).join(', ') || 'none'}`);
 });
@@ -101,7 +104,7 @@ client.on('messageCreate', async (msg) => {
   if (!prompt) return;
 
   if (prompt === '!reset') {
-    histories.delete(msg.channelId);
+    histories.delete(historyKey(msg));
     await msg.reply('Conversation reset.');
     return;
   }
@@ -112,7 +115,8 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
-  const history = histories.get(msg.channelId) ?? [];
+  const key = historyKey(msg); // fixed now so a settings change mid-reply can't split the conversation
+  const history = histories.get(key) ?? [];
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
@@ -135,7 +139,7 @@ client.on('messageCreate', async (msg) => {
     stats.outputTokens += usage.output;
     history.push({ role: 'assistant', content: reply });
     if (entry.usedTools) reply = `(search) ${reply}`;
-    histories.set(msg.channelId, history.slice(-getConfig().historyLimit));
+    histories.set(key, history.slice(-getConfig().historyLimit));
 
     const [first, ...rest] = split(reply || '(empty response)');
     await msg.reply(first);

@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { getConfig, updateConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
-import { HOST as OLLAMA_HOST } from './ollama.js';
+import { HOST as OLLAMA_HOST, supportsTools } from './ollama.js';
 
 const HOST = process.env.WEB_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.WEB_PORT ?? 8787);
@@ -75,6 +75,7 @@ export function startWeb(api) {
           defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
           models: models ?? [],
           ollamaOnline: models !== null,
+          modelSupportsTools: await supportsTools(getConfig().model),
           ...api.getStatus(),
         });
       }

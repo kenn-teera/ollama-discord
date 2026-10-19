@@ -79,7 +79,7 @@
         <h2>Model</h2>
         <p class="desc">Which Ollama model answers, and how freely it writes.</p>
         <div class="grid">
-          <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select></div>
+          <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select><div class="hint" id="noTools" hidden style="margin-top:6px;color:var(--warn)"></div></div>
           <div><label for="temperature">Temperature <span class="hint">(0 precise – 2 creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
         </div>
       </div>
@@ -95,7 +95,8 @@
         <h2>Limits</h2>
         <p class="desc">Memory and effort per reply.</p>
         <div class="grid">
-          <div><label for="historyLimit">History <span class="hint">(messages per channel)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
+          <div><label for="historyScope">History kept <span class="hint">(who shares a conversation)</span></label><select id="historyScope"><option value="user">Per user (private)</option><option value="channel">Per channel (shared)</option></select></div>
+          <div><label for="historyLimit">History <span class="hint">(messages kept)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
           <div><label for="numCtx">Context size <span class="hint">(tokens; more = more RAM)</span></label><input type="number" id="numCtx" min="1024" max="32768" step="1024"></div>
           <div><label for="maxToolRounds">Tool rounds <span class="hint">(calls before it must answer)</span></label><input type="number" id="maxToolRounds" min="1" max="8"></div>
         </div>
@@ -195,17 +196,19 @@ function render(s, fillForm) {
     pill('Up ' + fmtUptime(s.uptimeSeconds)),
     pill(`${s.replies} replies · ${s.errors} errors`),
     pill(`${fmtNum(s.inputTokens + s.outputTokens)} tokens`, undefined, `Since start. In: ${s.inputTokens.toLocaleString()} (prompt + history + tool results). Out: ${s.outputTokens.toLocaleString()} (generated).`),
-    pill(s.tools.length ? `${s.tools.length} tools` : 'no tools'),
+    pill(!s.modelSupportsTools ? 'tools unused' : s.tools.length ? `${s.tools.length} tools` : 'no tools'),
   );
   if (fillForm) {
     const sel = $('model'); sel.replaceChildren();
     const names = s.models.includes(s.config.model) ? s.models : [s.config.model, ...s.models];
     for (const n of names) { const o = el('option', n); o.value = n; sel.append(o); }
     sel.value = s.config.model;
-    for (const k of ['systemPrompt', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
+    for (const k of ['systemPrompt', 'historyScope', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
   }
+  $('noTools').hidden = s.modelSupportsTools;
+  $('noTools').textContent = `${s.config.model} cannot call tools, so search and MCP servers are skipped (it answers from its own knowledge).`;
   renderMcp(s.mcpServers, fillForm);
   renderActivity(s.activity);
 }
@@ -226,7 +229,7 @@ $('form').addEventListener('submit', async (e) => {
   try {
     await api('/api/config', {
       model: $('model').value, systemPrompt: $('systemPrompt').value,
-      historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
+      historyScope: $('historyScope').value, historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
       temperature: Number($('temperature').value), maxToolRounds: Number($('maxToolRounds').value),
       mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
       searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,

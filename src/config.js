@@ -15,6 +15,7 @@ const envDefaults = {
   model: process.env.OLLAMA_MODEL ?? 'qwen2.5:7b',
   systemPrompt: process.env.SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
   historyLimit: Number(process.env.HISTORY_LIMIT ?? 10),
+  historyScope: process.env.HISTORY_SCOPE ?? 'user',
   numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
   temperature: Number(process.env.OLLAMA_TEMPERATURE ?? 0.8),
   maxToolRounds: Number(process.env.MAX_TOOL_ROUNDS ?? 4),
@@ -45,6 +46,10 @@ const validators = {
     return v.trim();
   },
   historyLimit: int(1, 50),
+  historyScope: (v) => {
+    if (!['user', 'channel'].includes(v)) throw new Error('must be "user" or "channel"');
+    return v;
+  },
   numCtx: int(1024, 32768),
   temperature: num(0, 2),
   maxToolRounds: int(1, 8),
