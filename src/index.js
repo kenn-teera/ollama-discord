@@ -114,13 +114,19 @@ function botInfo(msg) {
   ].filter(Boolean).join('\n');
 }
 
-// The system prompt plus today's date. Without it the model guesses the year from its training data (and searches for
-// "F1 2024"). Date only, no clock time, so the prompt stays identical all day and Ollama can reuse its cache.
-function systemMessage(config) {
-  if (!config.injectDate) return { role: 'system', content: config.systemPrompt };
+// Messages for the model: system prompt, history, and today's date stamped on the current question. The model guesses the
+// year from its training data (it searched "F1 2024" in 2026) and ignores a date placed in the system prompt when many tools
+// are offered, but it uses one right next to the question. Only the copy sent to the model is stamped, never the stored
+// history, so the date is always today's and old messages don't pile up stamps. Date only (no clock time) keeps Ollama's
+// prompt cache valid for everything before the last message.
+function modelMessages(config, history) {
+  const messages = [{ role: 'system', content: config.systemPrompt }, ...history];
+  if (!config.injectDate) return messages;
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeZone: zone }).format(new Date());
-  return { role: 'system', content: `${config.systemPrompt}\n\nToday's date is ${today} (${zone}). Use the current year when searching for current information.` };
+  const last = messages.length - 1;
+  messages[last] = { ...messages[last], content: `[Today is ${today}] ${messages[last].content}` };
+  return messages;
 }
 
 // Chat commands, sent as "--name" after the @mention (or in a DM). --help is generated from this list.
@@ -204,7 +210,7 @@ client.on('messageCreate', async (msg) => {
     let reply;
     try {
       ({ content: reply, usedTools: entry.usedTools } = await chat(
-        [systemMessage(config), ...history],
+        modelMessages(config, history),
         { tools: currentTools(), runTool, usage },
       ));
     } finally {
