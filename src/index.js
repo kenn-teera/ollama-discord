@@ -5,6 +5,7 @@ import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
 import { startWeb } from './web.js';
 import { captureConsole, logChat } from './logger.js';
+import { SEARCH_FAILED, isSearchFailure } from './search.js';
 
 captureConsole();
 
@@ -46,10 +47,14 @@ function searchArgs(name, args) {
 }
 
 async function search(name, args) {
-  const results = await callTool(name, searchArgs(name, args));
-  if (/^Error|Search failed/i.test(results)) {
-    return 'SEARCH FAILED: the search service is temporarily unavailable. Do not answer from memory. Tell the user you could not search right now and to try again in a minute.';
+  let results;
+  try {
+    results = await callTool(name, searchArgs(name, args));
+  } catch (err) {
+    console.error(`Search tool ${name} failed: ${err.message}`);
+    return SEARCH_FAILED;
   }
+  if (isSearchFailure(results)) return SEARCH_FAILED;
   const url = results.match(/URL:\s*(https?:\/\/\S+)/)?.[1];
   if (!url) return results;
   try {
