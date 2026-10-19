@@ -4,3 +4,5 @@ node_modules
 bot.log
 config.json
 config.json.tmp
+.venv/
+mcp-servers.json

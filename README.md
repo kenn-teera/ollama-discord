@@ -69,6 +69,13 @@ The list comes from three places (later wins on the same id):
    ```
    `envKeys` lists the `.env` variables forwarded to that server; nothing else from `.env` (such as the Discord token) is passed on.
 
+**Time server (current date, time and timezones).** The official `mcp-server-time` is a Python package, so it lives in its own virtual environment inside the project (git-ignored, along with your `mcp-servers.json`):
+```
+python3 -m venv .venv && .venv/bin/pip install mcp-server-time
+cp mcp-servers.example.json mcp-servers.json   # adjust --local-timezone if you are not in Asia/Bangkok
+```
+Then tick **Time** in the dashboard's MCP tools tab and Save. It provides `get_current_time` and `convert_time`, so date questions are answered instantly instead of by web search. Tell the bot to use it in the system prompt, for example: "For the current date or time, or timezone questions, use the time tool (default timezone Asia/Bangkok). Use web search only for other current events."
+
 Search-style tools (name contains `web-search` / `web_search`) get the summarise-and-cite flow; every other tool is offered to the model as is.
 
 - Local only by default. To reach it from another machine set `WEB_HOST` and a `WEB_PASSWORD` (the dashboard refuses to start on a non-local address without one). Use HTTPS or a VPN in front of it, since Basic auth is not encrypted.

@@ -3,9 +3,9 @@
     {
       "id": "time",
       "label": "Time",
-      "description": "Current time and timezone conversion.",
-      "command": "uvx",
-      "args": ["mcp-server-time"],
+      "description": "Current date and time and timezone conversion.",
+      "command": ".venv/bin/mcp-server-time",
+      "args": ["--local-timezone=Asia/Bangkok"],
       "envKeys": []
     }
   ]
