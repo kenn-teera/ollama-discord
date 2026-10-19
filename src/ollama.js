@@ -65,11 +65,16 @@ async function request(messages, tools, usage) {
 
 // Runs the model; if it requests tools, executes them via runTool and feeds results back.
 // Returns { content, usedTools, usage } where usage sums every model call for this reply: tokens (input/output),
-// milliseconds (loadMs/promptMs/evalMs/toolMs) and the number of model calls.
-export async function chat(messages, { tools, runTool } = {}) {
+// milliseconds (loadMs/promptMs/evalMs/toolMs), the number of model calls and the tools called (toolCalls).
+export const newUsage = () => ({ input: 0, output: 0, loadMs: 0, promptMs: 0, evalMs: 0, toolMs: 0, calls: 0, toolCalls: [] });
+
+// Short text for what a tool was called with (the query, URL, timezone...), shown in the dashboard and logs.
+const describeArgs = (args) => Object.values(args ?? {}).filter((v) => typeof v === 'string' || typeof v === 'number').join(', ').slice(0, 100);
+
+// The caller may pass its own `usage` (from newUsage) so what was recorded so far is kept even if the reply fails midway.
+export async function chat(messages, { tools, runTool, usage = newUsage() } = {}) {
   const convo = [...messages];
   let usedTools = false;
-  const usage = { input: 0, output: 0, loadMs: 0, promptMs: 0, evalMs: 0, toolMs: 0, calls: 0 };
   const maxRounds = getConfig().maxToolRounds;
   for (let round = 0; round < maxRounds; round++) {
     const msg = await request(convo, tools, usage);
@@ -80,13 +85,18 @@ export async function chat(messages, { tools, runTool } = {}) {
       const { name, arguments: args } = call.function;
       console.log(`tool call: ${name}`, JSON.stringify(args));
       let result;
+      let failed = false;
       const toolStart = Date.now();
       try {
         result = await runTool(name, args);
+        failed = /^Error|^SEARCH FAILED/.test(result);
       } catch (err) {
         result = `Error: ${err.message}`;
+        failed = true;
       }
-      usage.toolMs += Date.now() - toolStart;
+      const took = Date.now() - toolStart;
+      usage.toolMs += took;
+      usage.toolCalls.push({ name, arg: describeArgs(args), ms: took, failed });
       convo.push({ role: 'tool', tool_name: name, content: result });
     }
     convo.push({ role: 'system', content: ANSWER_INSTRUCTION });

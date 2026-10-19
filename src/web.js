@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { getConfig, updateConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import { HOST as OLLAMA_HOST, supportsTools, supportsThinking } from './ollama.js';
 import { systemStats } from './system.js';
+import { LOG_TYPES, readLog, clearLog, errorsSince } from './logger.js';
 
 const HOST = process.env.WEB_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.WEB_PORT ?? 8787);
@@ -75,7 +76,18 @@ export function startWeb(api) {
           .then((r) => r.json())
           .then((d) => d.models.map((m) => ({ name: m.name, size: m.size, sizeVram: m.size_vram, context: m.context_length, expiresAt: m.expires_at })))
           .catch(() => null);
-        return send(res, 200, { system: await systemStats(), loaded });
+        return send(res, 200, { system: await systemStats(), loaded, errorsLastHour: errorsSince(3600_000) });
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/logs') {
+        const type = url.searchParams.get('type') ?? 'bot';
+        const level = url.searchParams.get('level') ?? 'all';
+        const limit = Number(url.searchParams.get('limit') ?? 200);
+        const q = url.searchParams.get('q') ?? '';
+        if (!LOG_TYPES.includes(type) || !['all', 'issues', 'error'].includes(level) || !Number.isInteger(limit) || limit < 1 || limit > 500 || q.length > 100) {
+          return send(res, 400, { error: 'invalid log query' });
+        }
+        return send(res, 200, { type, entries: readLog(type, { limit, level, q }) });
       }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
@@ -110,6 +122,12 @@ export function startWeb(api) {
         if (url.pathname === '/api/mcp-reconnect') {
           await api.reconnectMcp();
           return send(res, 200, { mcpServers: api.getStatus().mcpServers });
+        }
+        if (url.pathname === '/api/logs/clear') {
+          const { type } = await readJson(req);
+          if (!LOG_TYPES.includes(type)) return send(res, 400, { error: 'invalid log type' });
+          clearLog(type);
+          return send(res, 200, { ok: true });
         }
         if (url.pathname === '/api/clear-history') {
           api.clearHistory();

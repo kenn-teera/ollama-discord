@@ -60,6 +60,12 @@
   .bar { flex:1; min-width:4px; display:flex; flex-direction:column-reverse; border-radius:2px 2px 0 0; overflow:hidden; } .bar i { display:block; }
   .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; } .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
   .c-load { background:var(--muted); } .c-prompt { background:var(--accent); } .c-gen { background:var(--ok); } .c-tools { background:var(--warn); } .c-other { background:var(--line); }
+  .logbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:10px 0; } .logbar select, .logbar input[type=text] { width:auto; padding:6px 8px; }
+  .logbar input[type=text] { flex:1; min-width:140px; } .logbar label { margin:0; font-weight:400; font-size:13px; display:flex; align-items:center; gap:5px; }
+  .lvl { font-size:12px; padding:1px 7px; border-radius:8px; border:1px solid var(--line); color:var(--muted); } .lvl.warn { color:var(--warn); border-color:var(--warn); } .lvl.error { color:var(--bad); border-color:var(--bad); }
+  .tc { font-size:12.5px; line-height:1.45; } .tc div { overflow-wrap:anywhere; } .tc b { font-weight:600; } .tc .tmut { color:var(--muted); } .tc .tbad, td .tbad { color:var(--bad); font-size:12px; }
+  td.mono { font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
+  tr.row { cursor:pointer; } tr.row:hover td { background:var(--bg); }
   #bar { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; transform:translateY(110%); transition:transform .15s; }
   #bar.show { transform:none; }
   #bar .in { max-width:760px; margin:0 auto; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -116,7 +122,8 @@
           <div><label for="userCooldown">Cooldown per user <span class="hint">(seconds between questions, 0 = off)</span></label><input type="number" id="userCooldown" min="0" max="600"></div>
           <div><label for="botStatus">Discord status text <span class="hint">(shown under the bot's name)</span></label><input type="text" id="botStatus" maxlength="128" placeholder="e.g. Ask me anything: @mention me"></div>
         </div>
-        <div class="toggle" style="margin-top:8px"><input type="checkbox" id="showSearchTag"><label for="showSearchTag">Show "(search)" tag<span class="hint">Prefix replies that used web search or other tools.</span></label></div>
+        <div class="toggle" style="margin-top:8px"><input type="checkbox" id="logChat"><label for="logChat">Save chat log to disk<span class="hint">Keeps each question and answer in <code>logs/chat.jsonl</code> so you can investigate problems (Monitor tab → Logs). Turn off if you don't want conversations stored.</span></label></div>
+        <div class="toggle"><input type="checkbox" id="showSearchTag"><label for="showSearchTag">Show "(search)" tag<span class="hint">Prefix replies that used web search or other tools.</span></label></div>
       </div>
 
       <div class="card">
@@ -169,6 +176,19 @@
       <div id="swapBox"></div>
     </div>
     <div class="card"><h2>Latest replies</h2><div class="scroll" id="breakdown"></div></div>
+    <div class="card">
+      <h2>Logs</h2>
+      <p class="desc">Saved on disk in <code>logs/</code> (survives restarts; each file keeps about 6 MB). <b>Bot log</b>: everything the bot prints, with errors and crashes. <b>Chat log</b>: each question and answer. Click a row to expand it.</p>
+      <div class="logbar">
+        <select id="logType" aria-label="Which log"><option value="bot">Bot log</option><option value="chat">Chat log</option></select>
+        <select id="logLevel" aria-label="Filter"><option value="all">All</option><option value="issues">Warnings and errors</option><option value="error">Errors only</option></select>
+        <input type="text" id="logQ" placeholder="Search text, user, error…" maxlength="100">
+        <button type="button" id="logRefresh">Refresh</button>
+        <label><input type="checkbox" id="logAuto"> Auto-refresh</label>
+        <button type="button" class="danger" id="logClear">Clear</button>
+      </div>
+      <div class="scroll" id="logView"></div>
+    </div>
   </section>
 
   <section class="tab" id="tab-activity" hidden>
@@ -204,7 +224,7 @@ function showTab(name) {
   for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const s of document.querySelectorAll('.tab')) s.hidden = s.id !== 'tab-' + name;
   history.replaceState(null, '', '#' + name);
-  if (name === 'monitor') refreshMonitor();
+  if (name === 'monitor') { refreshMonitor(); refreshLogs(); }
 }
 $('tabs').addEventListener('click', (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
@@ -224,6 +244,22 @@ function renderMcp(list, fillForm) {
   }));
 }
 
+// One line per tool call: name, what it was called with (query / URL...), how long it took, and "failed" if it errored.
+function toolCell(calls) {
+  const td = el('td', undefined, 'tc');
+  if (!calls?.length) { td.textContent = '—'; return td; }
+  for (const c of calls) {
+    const line = el('div'), name = el('b', c.name);
+    line.append(name);
+    if (c.arg) line.append(el('span', ' · ' + (c.arg.length > 50 ? c.arg.slice(0, 50) + '…' : c.arg), 'tmut'));
+    line.title = `${c.name}${c.arg ? ' · ' + c.arg : ''} · ${sec(c.ms)}${c.failed ? ' · FAILED' : ''}`;
+    line.append(el('span', ` · ${sec(c.ms)}`, 'tmut'));
+    if (c.failed) line.append(el('span', ' · failed', 'tbad'));
+    td.append(line);
+  }
+  return td;
+}
+
 function renderActivity(list) {
   const box = $('activity');
   if (!list.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
@@ -232,7 +268,7 @@ function renderActivity(list) {
   t.append(head);
   for (const a of list) {
     const r = el('tr');
-    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.error ? '—' : `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}`), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok', a.error ? 'bad' : ''));
+    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), (() => { const td = el('td', a.prompt); if (a.error) td.append(el('div', a.error, 'tbad'), ); return td; })(), el('td', a.error ? '—' : `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}`), toolCell(a.toolCalls), el('td', (a.ms / 1000).toFixed(1) + 's'), (() => { const td = el('td'); td.append(a.error ? el('span', 'error', 'lvl error') : document.createTextNode('ok')); return td; })());
     t.append(r);
   }
   box.replaceChildren(t);
@@ -262,6 +298,7 @@ function render(s, fillForm) {
     for (const k of ['topP', 'numPredict', 'keepAlive', 'userCooldown', 'botStatus']) $(k).value = s.config[k];
     $('allowedChannels').value = s.config.allowedChannels.join(', ');
     $('showSearchTag').checked = s.config.showSearchTag;
+    $('logChat').checked = s.config.logChat;
   }
   $('thinkRow').hidden = !s.modelSupportsThinking;
   $('noTools').hidden = s.modelSupportsTools;
@@ -298,6 +335,7 @@ function renderMonitor(mon) {
     if (avg(recent.map((a) => a.inputTokens / a.timing.calls)) > cfg.numCtx * 0.8) warns.push(['warn', `Prompts are close to the context size (${cfg.numCtx} tokens); older text may be cut. Raise context size or send fewer tools.`]);
     if (avg(recent.map((a) => a.timing.calls)) > 2.5) warns.push(['warn', 'Replies need many model calls (repeated tool use). Lower "Tool rounds" in Settings.']);
   }
+  if (mon.errorsLastHour > 0) warns.push(['bad', `${mon.errorsLastHour} error(s) in the bot log in the last hour. Open the Logs card below and choose "Errors only".`]);
   if ((lastState?.errors ?? 0) > 0) warns.push(['warn', `${lastState.errors} reply error(s) since start. See the Activity tab.`]);
   $('warnings').replaceChildren(...(warns.length ? warns.map(([k, t]) => el('div', t, 'warn ' + k)) : [el('div', 'All good: no problems detected.', 'allgood')]));
 
@@ -344,7 +382,7 @@ function renderMonitor(mon) {
   } else box.replaceChildren();
 
   const rows = done.slice(0, 10), t = el('table'), head = el('tr');
-  for (const h of ['Time', 'Total', 'Load', 'Prompt', 'Answer', 'Tools', 'Calls', 'Tokens in']) head.append(el('th', h));
+  for (const h of ['Time', 'Total', 'Load', 'Prompt', 'Answer', 'Tool time', 'Calls', 'Tokens in']) head.append(el('th', h));
   t.append(head);
   for (const a of rows) {
     const p = parts(a), r = el('tr');
@@ -354,6 +392,55 @@ function renderMonitor(mon) {
   $('breakdown').replaceChildren(rows.length ? t : el('div', 'No replies yet.', 'empty'));
 }
 async function refreshMonitor() { try { renderMonitor(await api('/api/monitor')); } catch (e) { toast(e.message, false); } }
+
+// ---- Logs (Monitor tab) ----
+function longCell(text, cls) {
+  const td = el('td', undefined, cls), full = String(text ?? ''), short = full.length > 140 ? full.slice(0, 140) + '…' : full;
+  td.textContent = short; td.dataset.short = short; td.dataset.full = full; return td;
+}
+function toggleRow(row) {
+  const open = row.dataset.open !== '1'; row.dataset.open = open ? '1' : '0';
+  for (const td of row.querySelectorAll('td[data-full]')) td.textContent = open ? td.dataset.full : td.dataset.short;
+}
+function logRow(cells) { const r = el('tr', undefined, 'row'); r.append(...cells); r.onclick = () => toggleRow(r); return r; }
+
+function renderLog(type, entries) {
+  const box = $('logView');
+  if (!entries.length) { box.replaceChildren(el('div', 'No log entries match.', 'empty')); return; }
+  const t = el('table'), head = el('tr');
+  for (const h of type === 'bot' ? ['Time', 'Level', 'Message'] : ['Time', 'User', 'Question', 'Answer', 'Tools', 'Took', 'Tokens', 'Result']) head.append(el('th', h));
+  t.append(head);
+  for (const e of entries) {
+    const when = el('td', new Date(e.time).toLocaleString());
+    if (type === 'bot') t.append(logRow([when, (() => { const td = el('td'); td.append(el('span', e.level, 'lvl ' + e.level)); return td; })(), longCell(e.msg, 'mono')]));
+    else t.append(logRow([
+      when, el('td', e.kind === 'command' ? e.user + ' (cmd)' : e.user), longCell(e.prompt), longCell(e.reply ?? (e.error ? 'ERROR: ' + e.error : '—')),
+      e.toolCalls ? toolCell(e.toolCalls) : el('td', (e.tools ?? []).join(', ') || '—'), el('td', e.ms != null ? sec(e.ms) : '—'),
+      el('td', e.inputTokens != null ? `${e.inputTokens.toLocaleString()} / ${e.outputTokens.toLocaleString()}` : '—'),
+      (() => { const td = el('td'); td.append(e.error ? el('span', 'error', 'lvl error') : document.createTextNode('ok')); return td; })(),
+    ]));
+  }
+  box.replaceChildren(t);
+}
+async function refreshLogs() {
+  const type = $('logType').value;
+  try {
+    const q = new URLSearchParams({ type, level: $('logLevel').value, q: $('logQ').value.trim(), limit: '200' });
+    renderLog(type, (await api('/api/logs?' + q)).entries);
+  } catch (e) { toast(e.message, false); }
+}
+let logTimer;
+function setupLogs() {
+  for (const id of ['logType', 'logLevel']) $(id).onchange = refreshLogs;
+  $('logRefresh').onclick = refreshLogs;
+  $('logQ').onkeydown = (e) => { if (e.key === 'Enter') refreshLogs(); };
+  $('logAuto').onchange = () => { clearInterval(logTimer); if ($('logAuto').checked) logTimer = setInterval(() => { if (currentTab === 'monitor') refreshLogs(); }, 10000); };
+  $('logClear').onclick = async () => {
+    const type = $('logType').value;
+    if (!confirm(`Delete the saved ${type} log (including older rotated files)? This cannot be undone.`)) return;
+    try { await api('/api/logs/clear', { type }); toast('Log cleared', true); await refreshLogs(); } catch (e) { toast(e.message, false); }
+  };
+}
 
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -376,7 +463,7 @@ $('form').addEventListener('submit', async (e) => {
       mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
       thinking: $('thinking').checked,
       topP: Number($('topP').value), numPredict: Number($('numPredict').value), keepAlive: $('keepAlive').value.trim(),
-      userCooldown: Number($('userCooldown').value), botStatus: $('botStatus').value, showSearchTag: $('showSearchTag').checked,
+      userCooldown: Number($('userCooldown').value), botStatus: $('botStatus').value, showSearchTag: $('showSearchTag').checked, logChat: $('logChat').checked,
       allowedChannels: $('allowedChannels').value.split(/[\s,]+/).filter(Boolean), searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
     });
     setDirty(false); toast('Saved', true); await refresh(true);
@@ -393,6 +480,7 @@ $('clear').onclick = async () => {
   try { await api('/api/clear-history', {}); toast('History cleared', true); } catch (err) { toast(err.message, false); }
 };
 
+setupLogs();
 showTab(['settings', 'tools', 'monitor', 'activity'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'settings');
 refresh(true);
 setInterval(() => refresh(!dirty && document.activeElement?.closest('form') === null), 5000);

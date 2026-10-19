@@ -1,9 +1,12 @@
 import { ActivityType, Client, GatewayIntentBits, Partials } from 'discord.js';
-import { chat } from './ollama.js';
+import { chat, newUsage } from './ollama.js';
 import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
 import { startWeb } from './web.js';
+import { captureConsole, logChat } from './logger.js';
+
+captureConsole();
 
 const MAX_LEN = 2000; // Discord message limit
 const MAX_ACTIVITY = 50;
@@ -87,10 +90,10 @@ function split(text) {
   return chunks;
 }
 
-// Command replies (!reset, !info) are sent in a code block so they stay monospaced and aligned.
+// Command replies (--help, --info, --reset) are sent in a code block so they stay monospaced and aligned.
 const codeBlock = (text) => `\`\`\`\n${text}\n\`\`\``;
 
-// Reply to !info: public-safe status (no prompt, channel IDs, tokens or commands).
+// Reply to --info: public-safe status (no prompt, channel IDs, tokens or commands).
 function botInfo(msg) {
   const config = getConfig();
   const tools = currentTools().map((t) => t.function.name);
@@ -107,9 +110,23 @@ function botInfo(msg) {
     `Your conversation: ${kept} message${kept === 1 ? '' : 's'} kept (up to ${config.historyLimit}, ${config.historyScope === 'user' ? 'private to you' : 'shared in this channel'})`,
     `Up ${Math.floor(up / 60)}h ${up % 60}m | ${stats.replies} ${stats.replies === 1 ? 'reply' : 'replies'}, ${stats.errors} ${stats.errors === 1 ? 'error' : 'errors'}${recent.length ? ` | avg reply ${(avgMs / 1000).toFixed(1)}s` : ''} | ${total.toLocaleString()} tokens used`,
     config.userCooldown ? `Cooldown: ${config.userCooldown}s between questions` : null,
-    'Commands: !reset clears your conversation, !info shows this.',
+    'Type --help to see all commands.',
   ].filter(Boolean).join('\n');
 }
+
+// Chat commands, sent as "--name" after the @mention (or in a DM). --help is generated from this list.
+const COMMANDS = {
+  help: { about: 'list all commands', run: () => commandHelp() },
+  info: { about: 'show model, tools, your conversation size and usage', run: (msg) => botInfo(msg) },
+  reset: {
+    about: 'clear your conversation history',
+    run: (msg) => {
+      histories.delete(historyKey(msg));
+      return 'Conversation reset.';
+    },
+  },
+};
+const commandHelp = () => ['Commands', ...Object.entries(COMMANDS).map(([name, c]) => `--${name.padEnd(5)} ${c.about}`)].join('\n');
 
 // 'user': each person has their own conversation in a channel; 'channel': everyone in the channel shares one.
 const historyKey = (msg) => (getConfig().historyScope === 'user' ? `${msg.channelId}:${msg.author.id}` : msg.channelId);
@@ -142,14 +159,11 @@ client.on('messageCreate', async (msg) => {
   const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
   if (!prompt) return;
 
-  const command = prompt.toLowerCase();
-  if (command === '!reset') {
-    histories.delete(historyKey(msg));
-    await msg.reply(codeBlock('Conversation reset.'));
-    return;
-  }
-  if (command === '!info') {
-    await msg.reply(codeBlock(botInfo(msg))).catch(() => {});
+  if (prompt.startsWith('--')) {
+    const name = prompt.slice(2).split(/\s/)[0].toLowerCase();
+    const reply = Object.hasOwn(COMMANDS, name) ? COMMANDS[name].run(msg) : `Unknown command: --${name.slice(0, 30)}\nType --help to see all commands.`;
+    await msg.reply(codeBlock(reply)).catch(() => {});
+    if (getConfig().logChat) logChat({ time: Date.now(), kind: 'command', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM, prompt, reply });
     return;
   }
 
@@ -171,15 +185,18 @@ client.on('messageCreate', async (msg) => {
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
-  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null };
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null, toolCalls: [] };
+  let answer = null; // the model's reply (without the (search) tag), for the chat log
+  const usage = newUsage();
+  let errorText = null;
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
-    let reply, usage;
+    let reply;
     try {
-      ({ content: reply, usedTools: entry.usedTools, usage } = await chat(
+      ({ content: reply, usedTools: entry.usedTools } = await chat(
         [{ role: 'system', content: config.systemPrompt }, ...history],
-        { tools: currentTools(), runTool },
+        { tools: currentTools(), runTool, usage },
       ));
     } finally {
       clearInterval(typing);
@@ -189,6 +206,7 @@ client.on('messageCreate', async (msg) => {
     entry.timing = { loadMs: Math.round(usage.loadMs), promptMs: Math.round(usage.promptMs), evalMs: Math.round(usage.evalMs), toolMs: usage.toolMs, calls: usage.calls };
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
+    answer = reply;
     history.push({ role: 'assistant', content: reply });
     if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
     histories.set(key, history.slice(-getConfig().historyLimit));
@@ -202,10 +220,19 @@ client.on('messageCreate', async (msg) => {
     console.error(err);
     stats.errors++;
     entry.error = err.message.slice(0, 120);
+    errorText = err.message.slice(0, 500);
     await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
   }
+  entry.toolCalls = usage.toolCalls; // kept even when the reply failed, to see what ran before the error
   entry.ms = Date.now() - started;
   record(entry);
+  if (config.logChat) {
+    logChat({
+      time: started, kind: 'chat', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM,
+      prompt: prompt.slice(0, 2000), reply: answer?.slice(0, 4000) ?? null, ms: entry.ms,
+      inputTokens: entry.inputTokens, outputTokens: entry.outputTokens, calls: entry.timing?.calls ?? 0, tools: usage.toolCalls.map((c) => c.name), toolCalls: usage.toolCalls, error: errorText,
+    });
+  }
 });
 
 startWeb({
