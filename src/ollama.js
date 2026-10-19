@@ -69,7 +69,7 @@ async function request(messages, tools, usage) {
 export async function chat(messages, { tools, runTool } = {}) {
   const convo = [...messages];
   let usedTools = false;
-  const usage = { input: 0, output: 0, loadMs: 0, promptMs: 0, evalMs: 0, toolMs: 0, calls: 0 };
+  const usage = { input: 0, output: 0, loadMs: 0, promptMs: 0, evalMs: 0, toolMs: 0, calls: 0, toolNames: [] };
   const maxRounds = getConfig().maxToolRounds;
   for (let round = 0; round < maxRounds; round++) {
     const msg = await request(convo, tools, usage);
@@ -79,6 +79,7 @@ export async function chat(messages, { tools, runTool } = {}) {
     for (const call of msg.tool_calls) {
       const { name, arguments: args } = call.function;
       console.log(`tool call: ${name}`, JSON.stringify(args));
+      usage.toolNames.push(name);
       let result;
       const toolStart = Date.now();
       try {

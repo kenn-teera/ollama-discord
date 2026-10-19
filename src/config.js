@@ -22,6 +22,7 @@ const envDefaults = {
   keepAlive: process.env.OLLAMA_KEEP_ALIVE ?? '5m', // how long Ollama keeps the model in memory after the last reply
   allowedChannels: [], // channel IDs the bot answers in (DMs always allowed); empty = every channel
   userCooldown: 0, // seconds a user must wait between questions, 0 = off
+  logChat: true, // save questions and answers to logs/chat.jsonl (for investigating problems)
   showSearchTag: true, // prefix replies that used tools with "(search)"
   botStatus: '', // custom Discord status text, empty = none
   numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
@@ -75,6 +76,7 @@ const validators = {
     return [...new Set(v)];
   },
   userCooldown: int(0, 600),
+  logChat: bool,
   showSearchTag: bool,
   botStatus: (v) => {
     if (typeof v !== 'string' || v.length > 128) throw new Error('must be at most 128 characters');

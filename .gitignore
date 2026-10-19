@@ -6,3 +6,4 @@ config.json
 config.json.tmp
 .venv/
 mcp-servers.json
+logs/

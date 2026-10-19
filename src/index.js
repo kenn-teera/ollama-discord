@@ -4,6 +4,9 @@ import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
 import { startWeb } from './web.js';
+import { captureConsole, logChat } from './logger.js';
+
+captureConsole();
 
 const MAX_LEN = 2000; // Discord message limit
 const MAX_ACTIVITY = 50;
@@ -160,6 +163,7 @@ client.on('messageCreate', async (msg) => {
     const name = prompt.slice(2).split(/\s/)[0].toLowerCase();
     const reply = Object.hasOwn(COMMANDS, name) ? COMMANDS[name].run(msg) : `Unknown command: --${name.slice(0, 30)}\nType --help to see all commands.`;
     await msg.reply(codeBlock(reply)).catch(() => {});
+    if (getConfig().logChat) logChat({ time: Date.now(), kind: 'command', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM, prompt, reply });
     return;
   }
 
@@ -182,6 +186,9 @@ client.on('messageCreate', async (msg) => {
 
   const started = Date.now();
   const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null };
+  let answer = null; // the model's reply (without the (search) tag), for the chat log
+  let toolNames = [];
+  let errorText = null;
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
@@ -199,6 +206,8 @@ client.on('messageCreate', async (msg) => {
     entry.timing = { loadMs: Math.round(usage.loadMs), promptMs: Math.round(usage.promptMs), evalMs: Math.round(usage.evalMs), toolMs: usage.toolMs, calls: usage.calls };
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
+    answer = reply;
+    toolNames = usage.toolNames;
     history.push({ role: 'assistant', content: reply });
     if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
     histories.set(key, history.slice(-getConfig().historyLimit));
@@ -212,10 +221,18 @@ client.on('messageCreate', async (msg) => {
     console.error(err);
     stats.errors++;
     entry.error = err.message.slice(0, 120);
+    errorText = err.message.slice(0, 500);
     await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
   }
   entry.ms = Date.now() - started;
   record(entry);
+  if (config.logChat) {
+    logChat({
+      time: started, kind: 'chat', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM,
+      prompt: prompt.slice(0, 2000), reply: answer?.slice(0, 4000) ?? null, ms: entry.ms,
+      inputTokens: entry.inputTokens, outputTokens: entry.outputTokens, calls: entry.timing?.calls ?? 0, tools: toolNames, error: errorText,
+    });
+  }
 });
 
 startWeb({
