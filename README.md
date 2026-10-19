@@ -50,6 +50,9 @@ Open http://127.0.0.1:8787 while the bot is running to change the model (from yo
 
 *Screenshots use demo data.*
 
+### Monitor tab
+Shows how the bot is performing: health warnings (swap nearly full, model partly on CPU, slow replies, prompts filling the context, repeated tool loops), averages (reply time, tokens/s for reading and writing, model calls per reply), a chart of where each reply's time went (model load, reading the prompt, writing the answer, tools), how much memory Ollama's model uses, and swap/CPU load on the Mac. Reply data is kept in memory for the last 50 replies and resets on restart.
+
 ### Choosing the bot's MCP servers
 The "MCP servers" list shows every server the bot knows about with a live status (off / connecting / connected / error) and the tools each one provides. Tick the ones you want and press Save; servers are started or stopped right away, and **Reconnect failed servers** retries any that errored. Several servers can run at once. If two expose a tool with the same name, the later one is prefixed with its id (e.g. `fake__get_time`).
 

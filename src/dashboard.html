@@ -51,6 +51,15 @@
   th { color:var(--muted); font-weight:600; } .empty { color:var(--muted); padding:8px 0; } .scroll { overflow-x:auto; }
   td.bad { color:var(--bad); }
 
+  .warn { border:1px solid var(--warn); border-radius:8px; padding:8px 12px; margin-bottom:8px; font-size:14px; }
+  .warn.bad { border-color:var(--bad); } .allgood { color:var(--ok); font-size:14px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .m { border:1px solid var(--line); border-radius:8px; padding:8px 10px; } .m b { display:block; font-size:17px; } .m span { color:var(--muted); font-size:12px; }
+  .meter { height:8px; border-radius:4px; background:var(--bg); border:1px solid var(--line); overflow:hidden; margin:6px 0 2px; } .meter > i { display:block; height:100%; background:var(--accent); } .meter > i.hot { background:var(--bad); }
+  .chart { display:flex; align-items:flex-end; gap:3px; height:130px; padding-top:6px; }
+  .bar { flex:1; min-width:4px; display:flex; flex-direction:column-reverse; border-radius:2px 2px 0 0; overflow:hidden; } .bar i { display:block; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; } .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+  .c-load { background:var(--muted); } .c-prompt { background:var(--accent); } .c-gen { background:var(--ok); } .c-tools { background:var(--warn); } .c-other { background:var(--line); }
   #bar { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; transform:translateY(110%); transition:transform .15s; }
   #bar.show { transform:none; }
   #bar .in { max-width:760px; margin:0 auto; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -70,6 +79,7 @@
   <nav role="tablist" id="tabs">
     <button role="tab" data-tab="settings" aria-selected="true">Settings</button>
     <button role="tab" data-tab="tools" aria-selected="false">MCP tools</button>
+    <button role="tab" data-tab="monitor" aria-selected="false">Monitor</button>
     <button role="tab" data-tab="activity" aria-selected="false">Activity</button>
   </nav>
 
@@ -140,6 +150,27 @@
     </section>
   </form>
 
+  <section class="tab" id="tab-monitor" hidden>
+    <div class="card"><h2>Health</h2><div id="warnings" style="margin-top:8px"></div></div>
+    <div class="card">
+      <h2>Reply performance</h2>
+      <p class="desc">Averages over the last replies (kept in memory, up to 50).</p>
+      <div class="cards" id="perf"></div>
+    </div>
+    <div class="card">
+      <h2>Where the time goes</h2>
+      <p class="desc">One bar per reply, oldest on the left. Hover a bar for the numbers.</p>
+      <div class="chart" id="chart"></div>
+      <div class="legend"><span><i class="c-load"></i>model load</span><span><i class="c-prompt"></i>reading prompt</span><span><i class="c-gen"></i>writing answer</span><span><i class="c-tools"></i>tools (search, fetch)</span><span><i class="c-other"></i>other</span></div>
+    </div>
+    <div class="card">
+      <h2>Ollama and this Mac</h2>
+      <div class="cards" id="host"></div>
+      <div id="swapBox"></div>
+    </div>
+    <div class="card"><h2>Latest replies</h2><div class="scroll" id="breakdown"></div></div>
+  </section>
+
   <section class="tab" id="tab-activity" hidden>
     <div class="card">
       <h2>Recent activity</h2>
@@ -154,7 +185,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let dirty = false, defaultPrompt = '', toastTimer;
+let dirty = false, defaultPrompt = '', toastTimer, lastState = null, currentTab = 'settings';
 
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function pill(text, dot, title) {
@@ -169,9 +200,11 @@ function toast(text, ok) { const t = $('toast'); t.textContent = text; t.classNa
 function setDirty(v) { dirty = v; $('bar').classList.toggle('show', v); }
 
 function showTab(name) {
+  currentTab = name;
   for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const s of document.querySelectorAll('.tab')) s.hidden = s.id !== 'tab-' + name;
   history.replaceState(null, '', '#' + name);
+  if (name === 'monitor') refreshMonitor();
 }
 $('tabs').addEventListener('click', (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
@@ -206,6 +239,7 @@ function renderActivity(list) {
 }
 
 function render(s, fillForm) {
+  lastState = s;
   defaultPrompt = s.defaultSystemPrompt;
   $('who').textContent = s.botTag ? `Logged in as ${s.botTag}` : 'Discord: not connected yet';
   $('pills').replaceChildren(
@@ -236,13 +270,98 @@ function render(s, fillForm) {
   renderActivity(s.activity);
 }
 
+// ---- Monitor tab ----
+const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+const sec = (ms) => (ms / 1000).toFixed(1) + 's';
+const gb = (b) => (b / 1e9).toFixed(1) + ' GB';
+function metric(value, label) { const d = el('div', undefined, 'm'); d.append(el('b', value), el('span', label)); return d; }
+
+// Splits one reply's total time into load / prompt / generate / tools / other.
+function parts(a) {
+  const t = a.timing;
+  const load = t.loadMs, prompt = t.promptMs, gen = t.evalMs, tools = t.toolMs;
+  return { load, prompt, gen, tools, other: Math.max(0, a.ms - load - prompt - gen - tools) };
+}
+
+function renderMonitor(mon) {
+  const done = (lastState?.activity ?? []).filter((a) => a.timing && !a.error); // newest first
+  const cfg = lastState?.config ?? {};
+  const warns = [];
+  const sw = mon.system.swap;
+  if (sw && sw.usedMB / sw.totalMB > 0.8) warns.push(['bad', `Swap is almost full (${Math.round(sw.usedMB)} of ${Math.round(sw.totalMB)} MB). The Mac is short on memory, which slows Ollama a lot. Close other apps or use a smaller model.`]);
+  const m = mon.loaded?.find((x) => x.name === cfg.model);
+  if (mon.loaded === null) warns.push(['bad', 'Ollama is not reachable.']);
+  if (m && m.sizeVram < m.size * 0.95) warns.push(['warn', `Only ${Math.round((m.sizeVram / m.size) * 100)}% of ${m.name} fits on the GPU; the rest runs on the CPU and is slow.`]);
+  if (done.length) {
+    const recent = done.slice(0, 10);
+    if (avg(recent.map((a) => a.ms)) > 30000) warns.push(['warn', `Replies are slow (${sec(avg(recent.map((a) => a.ms)))} on average). Check the chart below: long "reading prompt" bars mean the prompt is too big (too many tools or long history).`]);
+    if (avg(recent.map((a) => a.inputTokens / a.timing.calls)) > cfg.numCtx * 0.8) warns.push(['warn', `Prompts are close to the context size (${cfg.numCtx} tokens); older text may be cut. Raise context size or send fewer tools.`]);
+    if (avg(recent.map((a) => a.timing.calls)) > 2.5) warns.push(['warn', 'Replies need many model calls (repeated tool use). Lower "Tool rounds" in Settings.']);
+  }
+  if ((lastState?.errors ?? 0) > 0) warns.push(['warn', `${lastState.errors} reply error(s) since start. See the Activity tab.`]);
+  $('warnings').replaceChildren(...(warns.length ? warns.map(([k, t]) => el('div', t, 'warn ' + k)) : [el('div', 'All good: no problems detected.', 'allgood')]));
+
+  const perf = $('perf');
+  if (!done.length) perf.replaceChildren(el('div', 'No replies yet.', 'empty'));
+  else {
+    const tot = done.map((a) => a.ms), calls = avg(done.map((a) => a.timing.calls));
+    const promptTok = done.reduce((n, a) => n + a.inputTokens, 0), promptMs = done.reduce((n, a) => n + a.timing.promptMs, 0);
+    const genTok = done.reduce((n, a) => n + a.outputTokens, 0), genMs = done.reduce((n, a) => n + a.timing.evalMs, 0);
+    perf.replaceChildren(
+      metric(sec(avg(tot)), 'average reply'), metric(sec(Math.max(...tot)), 'slowest reply'),
+      metric(promptMs ? Math.round(promptTok / (promptMs / 1000)) + ' tok/s' : '—', 'reading prompts'),
+      metric(genMs ? (genTok / (genMs / 1000)).toFixed(1) + ' tok/s' : '—', 'writing answers'),
+      metric(Math.round(avg(done.map((a) => a.inputTokens / a.timing.calls))).toLocaleString(), 'prompt tokens per call'),
+      metric(calls.toFixed(1), 'model calls per reply'),
+    );
+  }
+
+  const bars = done.slice(0, 50).reverse(), top = Math.max(1, ...bars.map((a) => a.ms));
+  $('chart').replaceChildren(...bars.map((a) => {
+    const p = parts(a), b = el('div', undefined, 'bar');
+    b.style.height = Math.max(3, (a.ms / top) * 100) + '%';
+    b.title = `${new Date(a.time).toLocaleTimeString()} ${a.user}: ${sec(a.ms)} (load ${sec(p.load)}, prompt ${sec(p.prompt)}, answer ${sec(p.gen)}, tools ${sec(p.tools)})`;
+    for (const k of ['load', 'prompt', 'gen', 'tools', 'other']) { const seg = el('i', undefined, 'c-' + k); seg.style.height = (p[k] / a.ms) * 100 + '%'; b.append(seg); }
+    return b;
+  }));
+  if (!bars.length) $('chart').replaceChildren(el('div', 'No replies yet.', 'empty'));
+
+  const host = $('host'), sys = mon.system;
+  host.replaceChildren(
+    metric(m ? gb(m.size) : 'not loaded', cfg.model ? `${cfg.model} in memory` : 'model'),
+    metric(m ? Math.round((m.sizeVram / m.size) * 100) + '%' : '—', 'on GPU'),
+    metric(m ? m.context.toLocaleString() : '—', 'context (tokens)'),
+    metric(m?.expiresAt ? new Date(m.expiresAt).toLocaleTimeString() : '—', 'unloads at'),
+    metric(sys.botRssMB + ' MB', 'bot process memory'),
+    metric(`${sys.loadAvg.toFixed(1)} / ${sys.cpus}`, 'CPU load / cores'),
+  );
+  const box = $('swapBox');
+  if (sw) {
+    const pct = Math.round((sw.usedMB / sw.totalMB) * 100), meter = el('div', undefined, 'meter'), fill = el('i', undefined, pct > 80 ? 'hot' : '');
+    fill.style.width = pct + '%'; meter.append(fill);
+    box.replaceChildren(el('div', `Swap in use: ${Math.round(sw.usedMB)} of ${Math.round(sw.totalMB)} MB (${pct}%) · RAM ${(sys.totalMemMB / 1024).toFixed(0)} GB`, 'hint'), meter);
+    box.style.marginTop = '10px';
+  } else box.replaceChildren();
+
+  const rows = done.slice(0, 10), t = el('table'), head = el('tr');
+  for (const h of ['Time', 'Total', 'Load', 'Prompt', 'Answer', 'Tools', 'Calls', 'Tokens in']) head.append(el('th', h));
+  t.append(head);
+  for (const a of rows) {
+    const p = parts(a), r = el('tr');
+    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', sec(a.ms)), el('td', sec(p.load)), el('td', sec(p.prompt)), el('td', sec(p.gen)), el('td', sec(p.tools)), el('td', String(a.timing.calls)), el('td', a.inputTokens.toLocaleString()));
+    t.append(r);
+  }
+  $('breakdown').replaceChildren(rows.length ? t : el('div', 'No replies yet.', 'empty'));
+}
+async function refreshMonitor() { try { renderMonitor(await api('/api/monitor')); } catch (e) { toast(e.message, false); } }
+
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
-async function refresh(fillForm) { try { render(await api('/api/state'), fillForm); } catch (e) { $('who').textContent = 'Dashboard error: ' + e.message; } }
+async function refresh(fillForm) { try { render(await api('/api/state'), fillForm); if (currentTab === 'monitor') await refreshMonitor(); } catch (e) { $('who').textContent = 'Dashboard error: ' + e.message; } }
 
 $('form').addEventListener('input', () => setDirty(true));
 $('resetPrompt').onclick = () => { $('systemPrompt').value = defaultPrompt; setDirty(true); };
@@ -274,7 +393,7 @@ $('clear').onclick = async () => {
   try { await api('/api/clear-history', {}); toast('History cleared', true); } catch (err) { toast(err.message, false); }
 };
 
-showTab(['settings', 'tools', 'activity'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'settings');
+showTab(['settings', 'tools', 'monitor', 'activity'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'settings');
 refresh(true);
 setInterval(() => refresh(!dirty && document.activeElement?.closest('form') === null), 5000);
 </script>

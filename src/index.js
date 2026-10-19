@@ -142,7 +142,7 @@ client.on('messageCreate', async (msg) => {
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
-  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0 };
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null };
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
@@ -157,6 +157,7 @@ client.on('messageCreate', async (msg) => {
     }
     entry.inputTokens = usage.input;
     entry.outputTokens = usage.output;
+    entry.timing = { loadMs: Math.round(usage.loadMs), promptMs: Math.round(usage.promptMs), evalMs: Math.round(usage.evalMs), toolMs: usage.toolMs, calls: usage.calls };
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
     history.push({ role: 'assistant', content: reply });
