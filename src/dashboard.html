@@ -5,157 +5,206 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ollama Discord Bot</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2128; --muted:#667085; --line:#e2e5ea; --accent:#5865f2; --ok:#1a7f4b; --bad:#c0392b; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#8b93a1; --line:#2a2f38; --accent:#7983f5; --ok:#4cc38a; --bad:#ff6b5b; } }
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2128; --muted:#667085; --line:#e2e5ea; --accent:#5865f2; --ok:#1a7f4b; --bad:#c0392b; --warn:#b7791f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#8b93a1; --line:#2a2f38; --accent:#7983f5; --ok:#4cc38a; --bad:#ff6b5b; --warn:#e0b04a; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,sans-serif; }
-  main { max-width:880px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:0 0 12px; }
-  .sub { color:var(--muted); margin-bottom:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
-  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
-  .stat b { display:block; font-size:18px; } .stat span { color:var(--muted); font-size:13px; }
-  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; background:var(--bad); }
-  .dot.on { background:var(--ok); }
-  label { display:block; font-weight:600; margin:14px 0 4px; } label:first-of-type { margin-top:0; }
-  .hint { color:var(--muted); font-size:13px; font-weight:400; }
-  input[type=text], input[type=number], select, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
-  textarea { min-height:140px; resize:vertical; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1 1 200px; }
-  .switch { display:flex; align-items:center; gap:10px; margin-top:14px; font-weight:600; }
-  .switch input { width:18px; height:18px; }
-  button { padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text); font:inherit; cursor:pointer; }
+  main { max-width:760px; margin:0 auto; padding:20px 16px 110px; }
+  code { background:var(--bg); padding:1px 5px; border-radius:4px; font-size:13px; }
+
+  header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:19px; margin:0; } .who { color:var(--muted); font-size:13px; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 16px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--line); border-radius:999px; background:var(--card); font-size:13px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--bad); } .dot.on { background:var(--ok); }
+
+  nav { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+  nav button { border:0; border-bottom:2px solid transparent; border-radius:0; background:none; padding:8px 14px; color:var(--muted); font:inherit; cursor:pointer; }
+  nav button[aria-selected=true] { color:var(--text); border-color:var(--accent); font-weight:600; }
+  .tab[hidden] { display:none; }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  h2 { font-size:14px; margin:0 0 2px; } .desc { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  label { display:block; font-weight:600; font-size:14px; margin:12px 0 4px; } label:first-of-type { margin-top:0; }
+  .hint { color:var(--muted); font-size:12.5px; font-weight:400; }
+  input[type=number], select, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
+  textarea { min-height:150px; resize:vertical; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; align-items:end; } .grid label { margin-top:0; }
+  button { padding:7px 13px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text); font:inherit; cursor:pointer; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--bad); }
   button:disabled { opacity:.5; cursor:default; }
-  .actions { display:flex; gap:10px; align-items:center; margin-top:16px; flex-wrap:wrap; }
-  #msg { font-size:14px; } #msg.err { color:var(--bad); } #msg.ok { color:var(--ok); }
+  .toggle { display:flex; align-items:center; gap:10px; padding:8px 0; } .toggle + .toggle { border-top:1px solid var(--line); }
+  .toggle input { width:18px; height:18px; flex:none; } .toggle label { margin:0; } .toggle .hint { display:block; }
+  .rowbtns { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+
+  .server { display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-top:1px solid var(--line); cursor:pointer; font-weight:400; margin:0; }
+  .server:first-of-type { border-top:0; padding-top:0; }
+  .server input { width:18px; height:18px; margin-top:3px; flex:none; }
+  .server .body { flex:1; min-width:0; } .server b { font-weight:600; }
+  .server .sdesc { color:var(--muted); font-size:13px; } .server .tools { color:var(--muted); font-size:12px; word-break:break-word; margin-top:2px; }
+  .server .err { color:var(--bad); font-size:13px; }
+  .badge { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); margin-left:8px; color:var(--muted); font-weight:400; }
+  .badge.connected { color:var(--ok); border-color:var(--ok); } .badge.error { color:var(--bad); border-color:var(--bad); } .badge.connecting { color:var(--warn); border-color:var(--warn); }
+
   table { width:100%; border-collapse:collapse; font-size:13px; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--muted); font-weight:600; } .empty { color:var(--muted); padding:8px 0; }
-  .scroll { overflow-x:auto; }
-  .mcp { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-top:8px; display:flex; gap:10px; align-items:flex-start; }
-  .mcp input { width:18px; height:18px; margin-top:3px; flex:none; }
-  .mcp .body { flex:1; min-width:0; } .mcp b { font-weight:600; }
-  .mcp .desc { color:var(--muted); font-size:13px; } .mcp .tools { font-size:12px; color:var(--muted); word-break:break-word; }
-  .badge { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); margin-left:6px; color:var(--muted); }
-  .badge.connected { color:var(--ok); border-color:var(--ok); } .badge.error { color:var(--bad); border-color:var(--bad); }
-  .mcperr { color:var(--bad); font-size:13px; }
+  th { color:var(--muted); font-weight:600; } .empty { color:var(--muted); padding:8px 0; } .scroll { overflow-x:auto; }
+  td.bad { color:var(--bad); }
+
+  #bar { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; transform:translateY(110%); transition:transform .15s; }
+  #bar.show { transform:none; }
+  #bar .in { max-width:760px; margin:0 auto; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  #bar .grow { flex:1; color:var(--muted); font-size:14px; }
+  #toast { position:fixed; right:16px; top:16px; padding:8px 14px; border-radius:8px; background:var(--card); border:1px solid var(--line); font-size:14px; opacity:0; transition:opacity .15s; pointer-events:none; }
+  #toast.show { opacity:1; } #toast.ok { color:var(--ok); border-color:var(--ok); } #toast.err { color:var(--bad); border-color:var(--bad); }
 </style>
 </head>
 <body>
 <main>
-  <h1>Ollama Discord Bot</h1>
-  <div class="sub" id="who">Loading…</div>
+  <header>
+    <h1>Ollama Discord Bot</h1>
+    <span class="who" id="who">Loading…</span>
+  </header>
+  <div class="pills" id="pills"></div>
 
-  <div class="card"><div class="stats" id="stats"></div></div>
+  <nav role="tablist" id="tabs">
+    <button role="tab" data-tab="settings" aria-selected="true">Settings</button>
+    <button role="tab" data-tab="tools" aria-selected="false">MCP tools</button>
+    <button role="tab" data-tab="activity" aria-selected="false">Activity</button>
+  </nav>
 
-  <form class="card" id="form">
-    <h2>Settings <span class="hint">— applied immediately, saved to config.json</span></h2>
+  <form id="form" autocomplete="off">
+    <section class="tab" id="tab-settings">
+      <div class="card">
+        <h2>Model</h2>
+        <p class="desc">Which Ollama model answers, and how freely it writes.</p>
+        <div class="grid">
+          <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select></div>
+          <div><label for="temperature">Temperature <span class="hint">(0 precise – 2 creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
+        </div>
+      </div>
 
-    <label for="model">Model <span class="hint">(installed in Ollama)</span></label>
-    <select id="model"></select>
+      <div class="card">
+        <h2>System prompt</h2>
+        <p class="desc">Instructions the bot follows in every conversation.</p>
+        <textarea id="systemPrompt" maxlength="4000" aria-label="System prompt"></textarea>
+        <div class="rowbtns"><button type="button" id="resetPrompt">Reset to default</button></div>
+      </div>
 
-    <label for="systemPrompt">System prompt</label>
-    <textarea id="systemPrompt" maxlength="4000"></textarea>
-    <div class="actions" style="margin-top:6px"><button type="button" id="resetPrompt">Reset prompt to default</button></div>
+      <div class="card">
+        <h2>Limits</h2>
+        <p class="desc">Memory and effort per reply.</p>
+        <div class="grid">
+          <div><label for="historyLimit">History <span class="hint">(messages per channel)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
+          <div><label for="numCtx">Context size <span class="hint">(tokens; more = more RAM)</span></label><input type="number" id="numCtx" min="1024" max="32768" step="1024"></div>
+          <div><label for="maxToolRounds">Tool rounds <span class="hint">(calls before it must answer)</span></label><input type="number" id="maxToolRounds" min="1" max="8"></div>
+        </div>
+      </div>
 
-    <div class="row">
-      <div><label for="historyLimit">History length <span class="hint">(messages kept per channel)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
-      <div><label for="temperature">Temperature <span class="hint">(0 = precise, 2 = creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
-      <div><label for="numCtx">Context size <span class="hint">(tokens; more = slower, more RAM)</span></label><input type="number" id="numCtx" min="1024" max="32768" step="1024"></div>
-    </div>
+      <div class="card">
+        <h2>Control</h2>
+        <div class="toggle"><input type="checkbox" id="paused"><label for="paused">Pause bot<span class="hint">It replies that it is paused instead of answering.</span></label></div>
+        <div class="rowbtns"><button type="button" class="danger" id="clear">Clear conversation history (all channels)</button></div>
+      </div>
+    </section>
 
-    <div class="row">
-      <div><label for="maxToolRounds">Max tool rounds <span class="hint">(tool calls per reply before it must answer)</span></label><input type="number" id="maxToolRounds" min="1" max="8"></div>
-    </div>
-
-    <div class="switch"><input type="checkbox" id="searchEnabled"><label for="searchEnabled" style="margin:0">Tools enabled <span class="hint">(search, page fetch and the MCP servers below)</span></label></div>
-
-    <label>MCP servers <span class="hint">— tick the ones the bot may use; apply on Save</span></label>
-    <div id="mcpList"></div>
-    <div class="actions" style="margin-top:8px"><button type="button" id="reconnect">Reconnect failed servers</button></div>
-    <div class="hint" style="margin-top:6px">Add your own servers in <code>mcp-servers.json</code> (see README); commands are never entered or run from this page.</div>
-
-    <div class="switch"><input type="checkbox" id="paused"><label for="paused" style="margin:0">Pause bot <span class="hint">(it replies that it is paused)</span></label></div>
-
-    <div class="actions">
-      <button class="primary" type="submit" id="save">Save</button>
-      <button type="button" id="clear">Clear all conversation history</button>
-      <span id="msg"></span>
-    </div>
+    <section class="tab" id="tab-tools" hidden>
+      <div class="card">
+        <div class="toggle"><input type="checkbox" id="searchEnabled"><label for="searchEnabled">Tools enabled<span class="hint">Master switch for web search, page fetch and every MCP server below.</span></label></div>
+      </div>
+      <div class="card">
+        <h2>MCP servers</h2>
+        <p class="desc">Tick the servers the bot may use, then Save. Add your own in <code>mcp-servers.json</code>; commands are never entered or run from this page.</p>
+        <div id="mcpList"></div>
+        <div class="rowbtns"><button type="button" id="reconnect">Reconnect failed servers</button></div>
+      </div>
+    </section>
   </form>
 
-  <div class="card">
-    <h2>Recent activity <span class="hint">— kept in memory only, last 50</span></h2>
-    <div class="scroll" id="activity"></div>
-  </div>
+  <section class="tab" id="tab-activity" hidden>
+    <div class="card">
+      <h2>Recent activity</h2>
+      <p class="desc">Last 50 messages, kept in memory only.</p>
+      <div class="scroll" id="activity"></div>
+    </div>
+  </section>
 </main>
+
+<div id="bar"><div class="in"><span class="grow">You have unsaved changes.</span><button type="button" id="discard">Discard</button><button class="primary" type="submit" form="form" id="save">Save changes</button></div></div>
+<div id="toast" role="status"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let dirty = false, defaultPrompt = '';
+let dirty = false, defaultPrompt = '', toastTimer;
 
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
-function stat(label, value, dot) {
-  const d = el('div', undefined, 'stat'), b = el('b');
-  if (dot !== undefined) b.append(el('span', '', 'dot' + (dot ? ' on' : '')));
-  b.append(document.createTextNode(value)); d.append(b, el('span', label)); return d;
+function pill(text, dot) {
+  const p = el('span', undefined, 'pill');
+  if (dot !== undefined) p.append(el('span', '', 'dot' + (dot ? ' on' : '')));
+  p.append(document.createTextNode(text)); return p;
 }
 function fmtUptime(s) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; }
-function flash(text, ok) { const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err'; setTimeout(() => { m.textContent = ''; }, 4000); }
+function toast(text, ok) { const t = $('toast'); t.textContent = text; t.className = 'show ' + (ok ? 'ok' : 'err'); clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 3500); }
+function setDirty(v) { dirty = v; $('bar').classList.toggle('show', v); }
 
-// Rebuilds the server list. Checkbox state is kept from the server only when the form is being refilled, so unsaved ticks survive the 5s refresh.
+function showTab(name) {
+  for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
+  for (const s of document.querySelectorAll('.tab')) s.hidden = s.id !== 'tab-' + name;
+  history.replaceState(null, '', '#' + name);
+}
+$('tabs').addEventListener('click', (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
+
+// Keeps unsaved ticks across the 5s refresh unless the form is being refilled from the server.
 function renderMcp(list, fillForm) {
   const ticked = new Set(fillForm ? list.filter((m) => m.selected).map((m) => m.id) : [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value));
   $('mcpList').replaceChildren(...list.map((m) => {
-    const row = el('label', undefined, 'mcp'), box = el('input'), body = el('div', undefined, 'body'), head = el('div');
+    const row = el('label', undefined, 'server'), box = el('input'), body = el('div', undefined, 'body'), head = el('div');
     box.type = 'checkbox'; box.value = m.id; box.checked = ticked.has(m.id);
-    row.style.fontWeight = '400'; row.style.margin = '8px 0 0';
-    const label = { off: 'off', connecting: 'connecting…', connected: 'connected', error: 'error' }[m.status];
-    head.append(el('b', m.label), el('span', label, 'badge ' + m.status));
+    head.append(el('b', m.label), el('span', { off: 'off', connecting: 'connecting…', connected: 'connected', error: 'error' }[m.status], 'badge ' + m.status));
     body.append(head);
-    if (m.description) body.append(el('div', m.description, 'desc'));
-    if (m.status === 'error' && m.error) body.append(el('div', m.error, 'mcperr'));
+    if (m.description) body.append(el('div', m.description, 'sdesc'));
+    if (m.status === 'error' && m.error) body.append(el('div', m.error, 'err'));
     if (m.tools.length) body.append(el('div', 'Tools: ' + m.tools.join(', '), 'tools'));
     row.append(box, body);
     return row;
   }));
 }
 
+function renderActivity(list) {
+  const box = $('activity');
+  if (!list.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
+  const t = el('table'), head = el('tr');
+  for (const h of ['Time', 'User', 'Message', 'Tools', 'Took', 'Result']) head.append(el('th', h));
+  t.append(head);
+  for (const a of list) {
+    const r = el('tr');
+    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok', a.error ? 'bad' : ''));
+    t.append(r);
+  }
+  box.replaceChildren(t);
+}
+
 function render(s, fillForm) {
   defaultPrompt = s.defaultSystemPrompt;
   $('who').textContent = s.botTag ? `Logged in as ${s.botTag}` : 'Discord: not connected yet';
-  const stats = $('stats'); stats.replaceChildren(
-    stat('Discord', s.ready ? 'Online' : 'Offline', s.ready),
-    stat('Ollama', s.ollamaOnline ? 'Online' : 'Unreachable', s.ollamaOnline),
-    stat('Tools', s.tools.length ? s.tools.join(', ') : 'none'),
-    stat('Uptime', fmtUptime(s.uptimeSeconds)),
-    stat('Replies / errors', `${s.replies} / ${s.errors}`),
+  $('pills').replaceChildren(
+    pill(s.ready ? 'Discord online' : 'Discord offline', s.ready),
+    pill(s.ollamaOnline ? 'Ollama online' : 'Ollama unreachable', s.ollamaOnline),
+    pill('Up ' + fmtUptime(s.uptimeSeconds)),
+    pill(`${s.replies} replies · ${s.errors} errors`),
+    pill(s.tools.length ? `${s.tools.length} tools` : 'no tools'),
   );
   if (fillForm) {
     const sel = $('model'); sel.replaceChildren();
     const names = s.models.includes(s.config.model) ? s.models : [s.config.model, ...s.models];
     for (const n of names) { const o = el('option', n); o.value = n; sel.append(o); }
     sel.value = s.config.model;
-    $('systemPrompt').value = s.config.systemPrompt;
-    $('historyLimit').value = s.config.historyLimit;
-    $('numCtx').value = s.config.numCtx;
-    $('temperature').value = s.config.temperature;
-    $('maxToolRounds').value = s.config.maxToolRounds;
+    for (const k of ['systemPrompt', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
   }
   renderMcp(s.mcpServers, fillForm);
-  const box = $('activity');
-  if (!s.activity.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
-  const t = el('table'), head = el('tr');
-  for (const h of ['Time', 'User', 'Message', 'Search', 'Took', 'Result']) head.append(el('th', h));
-  t.append(head);
-  for (const a of s.activity) {
-    const r = el('tr');
-    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok'));
-    t.append(r);
-  }
-  box.replaceChildren(t);
+  renderActivity(s.activity);
 }
 
 async function api(path, body) {
@@ -166,8 +215,9 @@ async function api(path, body) {
 }
 async function refresh(fillForm) { try { render(await api('/api/state'), fillForm); } catch (e) { $('who').textContent = 'Dashboard error: ' + e.message; } }
 
-$('form').addEventListener('input', () => { dirty = true; });
-$('resetPrompt').onclick = () => { $('systemPrompt').value = defaultPrompt; dirty = true; };
+$('form').addEventListener('input', () => setDirty(true));
+$('resetPrompt').onclick = () => { $('systemPrompt').value = defaultPrompt; setDirty(true); };
+$('discard').onclick = async () => { setDirty(false); await refresh(true); };
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault(); $('save').disabled = true;
   try {
@@ -178,20 +228,21 @@ $('form').addEventListener('submit', async (e) => {
       mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
       searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
     });
-    dirty = false; flash('Saved', true); await refresh(true);
-  } catch (err) { flash(err.message, false); }
+    setDirty(false); toast('Saved', true); await refresh(true);
+  } catch (err) { toast(err.message, false); }
   $('save').disabled = false;
 });
 $('reconnect').onclick = async () => {
   $('reconnect').disabled = true;
-  try { await api('/api/mcp-reconnect', {}); flash('Reconnected', true); await refresh(false); } catch (err) { flash(err.message, false); }
+  try { await api('/api/mcp-reconnect', {}); toast('Reconnected', true); await refresh(false); } catch (err) { toast(err.message, false); }
   $('reconnect').disabled = false;
 };
 $('clear').onclick = async () => {
   if (!confirm('Clear conversation history for every channel?')) return;
-  try { await api('/api/clear-history', {}); flash('History cleared', true); } catch (err) { flash(err.message, false); }
+  try { await api('/api/clear-history', {}); toast('History cleared', true); } catch (err) { toast(err.message, false); }
 };
 
+showTab(['settings', 'tools', 'activity'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'settings');
 refresh(true);
 setInterval(() => refresh(!dirty && document.activeElement?.closest('form') === null), 5000);
 </script>
