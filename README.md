@@ -42,6 +42,14 @@ Set `MCP_ENABLED=false` to disable search and other tools.
 ## Web dashboard
 Open http://127.0.0.1:8787 while the bot is running to change the model (from your installed Ollama models), system prompt, history length, context size, temperature, max tool rounds, which **MCP servers** the bot uses, tools on/off, pause the bot, clear history, and see recent activity. Changes apply immediately and are saved to `config.json` (which overrides `.env`; delete it to go back to `.env` values).
 
+![Settings tab: model, system prompt, limits and controls](docs/screenshots/settings.png)
+
+| MCP tools | Activity and token usage |
+| --- | --- |
+| ![MCP tools tab: choose which MCP servers the bot uses](docs/screenshots/tools.png) | ![Activity tab: recent messages with tokens in and out](docs/screenshots/activity.png) |
+
+*Screenshots use demo data.*
+
 ### Choosing the bot's MCP servers
 The "MCP servers" list shows every server the bot knows about with a live status (off / connecting / connected / error) and the tools each one provides. Tick the ones you want and press Save; servers are started or stopped right away, and **Reconnect failed servers** retries any that errored. Several servers can run at once. If two expose a tool with the same name, the later one is prefixed with its id (e.g. `fake__get_time`).
 
