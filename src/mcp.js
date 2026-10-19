@@ -17,22 +17,6 @@ const BUILTIN = [
     args: ['-y', 'mcp-searxng'],
     envKeys: ['SEARXNG_URL'],
   },
-  {
-    id: 'brave',
-    label: 'Brave Search',
-    description: 'Brave web search. Needs BRAVE_API_KEY in .env.',
-    command: 'npx',
-    args: ['-y', '@brave/brave-search-mcp-server'],
-    envKeys: ['BRAVE_API_KEY'],
-  },
-  {
-    id: 'ddg',
-    label: 'DuckDuckGo search',
-    description: 'Scrapes DuckDuckGo. No key, but often rate-limited or blocked.',
-    command: 'npx',
-    args: ['-y', '@oevortex/ddg_search'],
-    envKeys: [],
-  },
 ];
 
 // Legacy single-server setup from .env (MCP_COMMAND / MCP_ARGS / MCP_ENV_KEYS).
@@ -86,7 +70,7 @@ export function catalog() {
 }
 
 export const catalogIds = () => catalog().map((s) => s.id);
-export const defaultServers = () => (process.env.MCP_COMMAND ? ['env'] : ['ddg']);
+export const defaultServers = () => (process.env.MCP_COMMAND ? ['env'] : ['searxng']);
 
 // id -> { client, tools: [{ name (exposed), original, definition }], status, error }
 const servers = new Map();
