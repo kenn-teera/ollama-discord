@@ -241,7 +241,8 @@ client.on('messageCreate', async (msg) => {
     stats.errors++;
     entry.error = err.message.slice(0, 120);
     errorText = err.message.slice(0, 500);
-    await msg.reply('Sorry, I could not reach the model. Is Ollama running?').catch(() => {});
+    const sorry = err.code === 'OLLAMA_TIMEOUT' ? 'Sorry, the model took too long to answer. Please try again.' : 'Sorry, I could not reach the model. Is Ollama running?';
+    await msg.reply(sorry).catch(() => {});
   }
   entry.toolCalls = usage.toolCalls; // kept even when the reply failed, to see what ran before the error
   entry.ms = Date.now() - started;
