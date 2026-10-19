@@ -17,6 +17,7 @@ Discord bot that answers with a local Ollama model (`qwen2.5:7b`).
 
 ## Usage
 - @mention the bot in a server channel, or DM it.
+- `!info` shows the model, tools, your conversation size, uptime and average reply time.
 - Each person gets their own conversation, even in a shared channel, so two people chatting at once don't mix. `!reset` clears your own history. To share one conversation per channel instead, set `HISTORY_SCOPE=channel` in `.env` or change "History kept" in the dashboard.
 
 Config via `.env`: `OLLAMA_HOST`, `OLLAMA_MODEL`, `SYSTEM_PROMPT`, `HISTORY_LIMIT`.

@@ -87,6 +87,27 @@ function split(text) {
   return chunks;
 }
 
+// Reply to !info: public-safe status (no prompt, channel IDs, tokens or commands).
+function botInfo(msg) {
+  const config = getConfig();
+  const tools = currentTools().map((t) => t.function.name);
+  const recent = activity.filter((a) => !a.error).slice(0, 10);
+  const avgMs = recent.length ? recent.reduce((n, a) => n + a.ms, 0) / recent.length : 0;
+  const up = Math.floor((Date.now() - stats.startedAt) / 60000);
+  const kept = histories.get(historyKey(msg))?.length ?? 0;
+  const total = stats.inputTokens + stats.outputTokens;
+  return [
+    '**Bot info**',
+    `Model: ${config.model}${config.thinking ? ' (thinking on)' : ''}`,
+    `Status: ${config.paused ? 'paused by admin' : 'online'}`,
+    `Tools: ${tools.length ? `${tools.length} (${tools.slice(0, 5).join(', ')}${tools.length > 5 ? ', ...' : ''})` : 'off'}`,
+    `Your conversation: ${kept} message${kept === 1 ? '' : 's'} kept (up to ${config.historyLimit}, ${config.historyScope === 'user' ? 'private to you' : 'shared in this channel'})`,
+    `Up ${Math.floor(up / 60)}h ${up % 60}m | ${stats.replies} ${stats.replies === 1 ? 'reply' : 'replies'}, ${stats.errors} ${stats.errors === 1 ? 'error' : 'errors'}${recent.length ? ` | avg reply ${(avgMs / 1000).toFixed(1)}s` : ''} | ${total.toLocaleString()} tokens used`,
+    config.userCooldown ? `Cooldown: ${config.userCooldown}s between questions` : null,
+    'Commands: `!reset` clears your conversation, `!info` shows this.',
+  ].filter(Boolean).join('\n');
+}
+
 // 'user': each person has their own conversation in a channel; 'channel': everyone in the channel shares one.
 const historyKey = (msg) => (getConfig().historyScope === 'user' ? `${msg.channelId}:${msg.author.id}` : msg.channelId);
 
@@ -118,9 +139,14 @@ client.on('messageCreate', async (msg) => {
   const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
   if (!prompt) return;
 
-  if (prompt === '!reset') {
+  const command = prompt.toLowerCase();
+  if (command === '!reset') {
     histories.delete(historyKey(msg));
     await msg.reply('Conversation reset.');
+    return;
+  }
+  if (command === '!info') {
+    await msg.reply(botInfo(msg)).catch(() => {});
     return;
   }
 
