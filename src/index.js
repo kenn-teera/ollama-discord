@@ -114,6 +114,15 @@ function botInfo(msg) {
   ].filter(Boolean).join('\n');
 }
 
+// The system prompt plus today's date. Without it the model guesses the year from its training data (and searches for
+// "F1 2024"). Date only, no clock time, so the prompt stays identical all day and Ollama can reuse its cache.
+function systemMessage(config) {
+  if (!config.injectDate) return { role: 'system', content: config.systemPrompt };
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const today = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeZone: zone }).format(new Date());
+  return { role: 'system', content: `${config.systemPrompt}\n\nToday's date is ${today} (${zone}). Use the current year when searching for current information.` };
+}
+
 // Chat commands, sent as "--name" after the @mention (or in a DM). --help is generated from this list.
 const COMMANDS = {
   help: { about: 'list all commands', run: () => commandHelp() },
@@ -195,7 +204,7 @@ client.on('messageCreate', async (msg) => {
     let reply;
     try {
       ({ content: reply, usedTools: entry.usedTools } = await chat(
-        [{ role: 'system', content: config.systemPrompt }, ...history],
+        [systemMessage(config), ...history],
         { tools: currentTools(), runTool, usage },
       ));
     } finally {
