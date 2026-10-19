@@ -82,6 +82,7 @@
           <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select><div class="hint" id="noTools" hidden style="margin-top:6px;color:var(--warn)"></div></div>
           <div><label for="temperature">Temperature <span class="hint">(0 precise – 2 creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
         </div>
+        <div class="toggle" id="thinkRow" hidden><input type="checkbox" id="thinking"><label for="thinking">Thinking mode<span class="hint">The model reasons before answering: better on hard questions, but much slower and uses many more tokens.</span></label></div>
       </div>
 
       <div class="card">
@@ -206,7 +207,9 @@ function render(s, fillForm) {
     for (const k of ['systemPrompt', 'historyScope', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
+    $('thinking').checked = s.config.thinking;
   }
+  $('thinkRow').hidden = !s.modelSupportsThinking;
   $('noTools').hidden = s.modelSupportsTools;
   $('noTools').textContent = `${s.config.model} cannot call tools, so search and MCP servers are skipped (it answers from its own knowledge).`;
   renderMcp(s.mcpServers, fillForm);
@@ -232,7 +235,7 @@ $('form').addEventListener('submit', async (e) => {
       historyScope: $('historyScope').value, historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
       temperature: Number($('temperature').value), maxToolRounds: Number($('maxToolRounds').value),
       mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
-      searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
+      thinking: $('thinking').checked, searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
     });
     setDirty(false); toast('Saved', true); await refresh(true);
   } catch (err) { toast(err.message, false); }
