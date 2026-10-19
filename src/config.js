@@ -16,6 +16,7 @@ const envDefaults = {
   systemPrompt: process.env.SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
   historyLimit: Number(process.env.HISTORY_LIMIT ?? 10),
   historyScope: process.env.HISTORY_SCOPE ?? 'user',
+  thinking: process.env.OLLAMA_THINKING === 'true',
   numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
   temperature: Number(process.env.OLLAMA_TEMPERATURE ?? 0.8),
   maxToolRounds: Number(process.env.MAX_TOOL_ROUNDS ?? 4),
@@ -53,6 +54,7 @@ const validators = {
   numCtx: int(1024, 32768),
   temperature: num(0, 2),
   maxToolRounds: int(1, 8),
+  thinking: bool,
   searchEnabled: bool,
   // Ids only: the commands behind them are fixed on the server (see mcp.js), never taken from the browser.
   mcpServers: (v) => {

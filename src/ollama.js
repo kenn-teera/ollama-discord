@@ -12,10 +12,11 @@ const ANSWER_INSTRUCTION = [
 ].join(' ');
 
 // num_ctx: Ollama's default window is too small for tool results.
-// Some models (e.g. gemma3) cannot call tools and Ollama rejects the request if tools are sent. Ask once per model.
-const toolSupport = new Map();
-export async function supportsTools(model) {
-  if (toolSupport.has(model)) return toolSupport.get(model);
+// What a model can do (completion, tools, thinking, vision...), asked once per model. Ollama rejects tools for models
+// without "tools" (e.g. gemma3) and `think` for models without "thinking", so only send them when supported.
+const capabilityCache = new Map();
+async function capabilities(model) {
+  if (capabilityCache.has(model)) return capabilityCache.get(model);
   try {
     const res = await fetch(`${HOST}/api/show`, {
       method: 'POST',
@@ -25,20 +26,24 @@ export async function supportsTools(model) {
     });
     const caps = (await res.json()).capabilities;
     if (Array.isArray(caps)) {
-      toolSupport.set(model, caps.includes('tools'));
-      return toolSupport.get(model);
+      capabilityCache.set(model, caps);
+      return caps;
     }
   } catch {
-    // Ollama unreachable or older version without capabilities: fall through and try with tools
+    // Ollama unreachable or older version without capabilities: not cached, assume tools work and thinking does not
   }
-  return true;
+  return ['tools'];
 }
+export const supportsTools = async (model) => (await capabilities(model)).includes('tools');
+export const supportsThinking = async (model) => (await capabilities(model)).includes('thinking');
 
 // `usage` (optional) accumulates Ollama's token counts: input = prompt tokens, output = generated tokens.
 async function request(messages, tools, usage) {
-  const { model, numCtx, temperature } = getConfig();
+  const { model, numCtx, temperature, thinking } = getConfig();
   const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature } };
   if (tools?.length && (await supportsTools(model))) body.tools = tools;
+  // Thinking models reason before answering (slow, many extra tokens); default is off for a chat bot.
+  if (await supportsThinking(model)) body.think = thinking;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
