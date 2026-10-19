@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { catalogIds, defaultServers } from './mcp.js';
 
 // Runtime settings editable from the web dashboard. Precedence: config.json > .env > defaults.
-const FILE = fileURLToPath(new URL('../config.json', import.meta.url));
+// CONFIG_FILE lets tests use a throwaway file instead of the real config.json.
+const FILE = process.env.CONFIG_FILE ?? fileURLToPath(new URL('../config.json', import.meta.url));
+export const CONFIG_PATH = FILE;
 
 export const DEFAULT_SYSTEM_PROMPT = [
   'You are a helpful assistant in a Discord server. Keep answers concise.',
@@ -104,11 +106,11 @@ function load() {
   }
 }
 
-// Only values changed from the dashboard are saved, so later changes to .env/defaults still apply to the rest.
+// Only values the user actually changed are saved, so later changes to .env/defaults still apply to the rest.
 const saved = {};
 for (const [k, v] of Object.entries(load())) {
   try {
-    if (k in validators) saved[k] = validators[k](v);
+    if (Object.hasOwn(validators, k)) saved[k] = validators[k](v);
   } catch {
     // ignore invalid saved value
   }
@@ -123,15 +125,18 @@ export const getConfig = () => config;
 export function updateConfig(patch) {
   const next = { ...config };
   for (const [k, v] of Object.entries(patch)) {
-    if (!(k in validators)) throw new Error(`unknown setting: ${k}`);
+    if (!Object.hasOwn(validators, k)) throw new Error(`unknown setting: ${k}`);
     try {
       next[k] = validators[k](v);
     } catch (err) {
       throw new Error(`${k}: ${err.message}`);
     }
   }
+  // The dashboard posts every field on each Save. Pin a value only if it differs from the current one or was already pinned,
+  // so saving one change does not freeze all the other settings against later .env edits.
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  for (const k of Object.keys(patch)) if (Object.hasOwn(saved, k) || !same(next[k], config[k])) saved[k] = next[k];
   config = next;
-  for (const k of Object.keys(patch)) saved[k] = next[k];
   writeFileSync(`${FILE}.tmp`, JSON.stringify(saved, null, 2));
   renameSync(`${FILE}.tmp`, FILE);
   for (const fn of listeners) fn(config);

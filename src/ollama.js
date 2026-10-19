@@ -1,6 +1,34 @@
+import http from 'node:http';
+import https from 'node:https';
 import { getConfig } from './config.js';
 
 export const HOST = process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434';
+const TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_SECONDS ?? 600) * 1000;
+
+// POST JSON to Ollama and wait for the whole reply. Node's built-in fetch gives up after about 5 minutes without response
+// headers, and a non-streamed reply from a big model on a small machine (a long prompt at ~75 tokens/s) can take longer while
+// Ollama is working fine. node:http has no such limit, so the only limit is OLLAMA_TIMEOUT_SECONDS (default 10 minutes).
+function postJson(path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, HOST);
+    const payload = JSON.stringify(body);
+    const req = (url.protocol === 'https:' ? https : http).request(
+      url,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }, signal: AbortSignal.timeout(TIMEOUT_MS) },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+        res.on('error', reject);
+      },
+    );
+    req.on('error', (err) => {
+      const timedOut = err.name === 'AbortError' || err.name === 'TimeoutError' || err.cause?.name === 'TimeoutError';
+      reject(timedOut ? Object.assign(new Error(`Ollama did not answer within ${TIMEOUT_MS / 1000}s`), { code: 'OLLAMA_TIMEOUT' }) : err);
+    });
+    req.end(payload);
+  });
+}
 
 // Added after tool results, whatever the system prompt says: small models tend to paste the raw text.
 const ANSWER_INSTRUCTION = [
@@ -44,13 +72,9 @@ async function request(messages, tools, usage) {
   if (tools?.length && (await supportsTools(model))) body.tools = tools;
   // Thinking models reason before answering (slow, many extra tokens); default is off for a chat bot.
   if (await supportsThinking(model)) body.think = thinking;
-  const res = await fetch(`${HOST}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${await res.text()}`);
-  const data = await res.json();
+  const res = await postJson('/api/chat', body);
+  if (res.status < 200 || res.status >= 300) throw new Error(`Ollama ${res.status}: ${res.text}`);
+  const data = JSON.parse(res.text);
   if (usage) {
     usage.input += data.prompt_eval_count ?? 0;
     usage.output += data.eval_count ?? 0;

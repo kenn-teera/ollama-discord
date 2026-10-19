@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const CATALOG_FILE = fileURLToPath(new URL('../mcp-servers.json', import.meta.url));
+// MCP_SERVERS_FILE lets tests use a throwaway catalog instead of the real mcp-servers.json.
+const CATALOG_FILE = process.env.MCP_SERVERS_FILE ?? fileURLToPath(new URL('../mcp-servers.json', import.meta.url));
 const MAX_RESULT = 4000;
 const ID_RE = /^[a-z0-9_-]{1,40}$/;
 
@@ -166,7 +167,9 @@ export async function callTool(name, args) {
   const route = routes.get(name);
   if (!route) throw new Error(`unknown tool: ${name}`);
   const res = await route.client.callTool({ name: route.original, arguments: args });
-  return (res.content ?? []).map((c) => c.text ?? '').join('\n').slice(0, MAX_RESULT);
+  const text = (res.content ?? []).map((c) => c.text ?? '').join('\n');
+  if (res.isError) throw new Error(text.slice(0, 300) || `${name} failed`); // MCP's own error flag
+  return text.slice(0, MAX_RESULT);
 }
 
 export async function closeMcp() {
