@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { catalogIds, defaultServers } from './mcp.js';
 
 // Runtime settings editable from the web dashboard. Precedence: config.json > .env > defaults.
 const FILE = fileURLToPath(new URL('../config.json', import.meta.url));
@@ -15,12 +16,19 @@ const envDefaults = {
   systemPrompt: process.env.SYSTEM_PROMPT ?? DEFAULT_SYSTEM_PROMPT,
   historyLimit: Number(process.env.HISTORY_LIMIT ?? 10),
   numCtx: Number(process.env.OLLAMA_NUM_CTX ?? 8192),
+  temperature: Number(process.env.OLLAMA_TEMPERATURE ?? 0.8),
+  maxToolRounds: Number(process.env.MAX_TOOL_ROUNDS ?? 4),
   searchEnabled: process.env.MCP_ENABLED !== 'false',
+  mcpServers: defaultServers(),
   paused: false,
 };
 
 const int = (min, max) => (v) => {
   if (!Number.isInteger(v) || v < min || v > max) throw new Error(`must be a whole number from ${min} to ${max}`);
+  return v;
+};
+const num = (min, max) => (v) => {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) throw new Error(`must be a number from ${min} to ${max}`);
   return v;
 };
 const bool = (v) => {
@@ -38,7 +46,17 @@ const validators = {
   },
   historyLimit: int(1, 50),
   numCtx: int(1024, 32768),
+  temperature: num(0, 2),
+  maxToolRounds: int(1, 8),
   searchEnabled: bool,
+  // Ids only: the commands behind them are fixed on the server (see mcp.js), never taken from the browser.
+  mcpServers: (v) => {
+    if (!Array.isArray(v) || v.length > 20) throw new Error('must be a list of server ids');
+    const known = catalogIds();
+    const bad = v.find((id) => !known.includes(id));
+    if (bad !== undefined) throw new Error(`unknown MCP server: ${String(bad).slice(0, 40)}`);
+    return [...new Set(v)];
+  },
   paused: bool,
 };
 

@@ -37,10 +37,24 @@ SEARXNG_URL=http://127.0.0.1:8888
 ```
 `./bot.sh start` starts SearXNG automatically (opening Docker Desktop if needed) and `./bot.sh stop` stops it again, as long as `SEARXNG_URL` is set in `.env`. SearXNG combines several engines; if some are blocked at your IP it uses the others.
 
-Other options (see `.env.example`): Brave Search (API key) or the default DuckDuckGo scraper (no key, often blocked). Microsoft retired the Bing Search API in August 2025. Set `MCP_ENABLED=false` to disable search.
+Set `MCP_ENABLED=false` to disable search and other tools.
 
 ## Web dashboard
-Open http://127.0.0.1:8787 while the bot is running to change the model (from your installed Ollama models), system prompt, history length, context size, search on/off, pause the bot, clear history, and see recent activity. Changes apply immediately and are saved to `config.json` (which overrides `.env`; delete it to go back to `.env` values).
+Open http://127.0.0.1:8787 while the bot is running to change the model (from your installed Ollama models), system prompt, history length, context size, temperature, max tool rounds, which **MCP servers** the bot uses, tools on/off, pause the bot, clear history, and see recent activity. Changes apply immediately and are saved to `config.json` (which overrides `.env`; delete it to go back to `.env` values).
+
+### Choosing the bot's MCP servers
+The "MCP servers" list shows every server the bot knows about with a live status (off / connecting / connected / error) and the tools each one provides. Tick the ones you want and press Save; servers are started or stopped right away, and **Reconnect failed servers** retries any that errored. Several servers can run at once. If two expose a tool with the same name, the later one is prefixed with its id (e.g. `fake__get_time`).
+
+The list comes from three places (later wins on the same id):
+1. built in: `searxng` (needs `SEARXNG_URL` in `.env`; the dashboard shows what is missing)
+2. `env`: the single server described by `MCP_COMMAND` / `MCP_ARGS` / `MCP_ENV_KEYS` in `.env`; if set it is selected by default, otherwise `searxng` is
+3. your own `mcp-servers.json` (copy `mcp-servers.example.json`; re-read when the file changes, no restart needed):
+   ```json
+   { "servers": [ { "id": "time", "label": "Time", "description": "...", "command": "uvx", "args": ["mcp-server-time"], "envKeys": [] } ] }
+   ```
+   `envKeys` lists the `.env` variables forwarded to that server; nothing else from `.env` (such as the Discord token) is passed on.
+
+Search-style tools (name contains `web-search` / `web_search`) get the summarise-and-cite flow; every other tool is offered to the model as is.
 
 - Local only by default. To reach it from another machine set `WEB_HOST` and a `WEB_PASSWORD` (the dashboard refuses to start on a non-local address without one). Use HTTPS or a VPN in front of it, since Basic auth is not encrypted.
-- The Discord token, Ollama address and MCP command stay in `.env` and cannot be changed from the web, so a compromised dashboard can't run commands on your machine.
+- The Discord token, Ollama address and MCP commands stay on the server (`.env`, built-ins, `mcp-servers.json`). The dashboard can only pick servers by id, so a compromised dashboard can't make the bot run a new command. Only add servers to `mcp-servers.json` that you trust: they run as your user.
