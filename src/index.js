@@ -4,8 +4,10 @@ import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
 import { getConfig, onConfigChange } from './config.js';
 import { startWeb } from './web.js';
-import { captureConsole, logChat } from './logger.js';
+import { captureConsole, logChat, logClientErrors } from './logger.js';
 import { SEARCH_FAILED, isSearchFailure } from './search.js';
+import { createConversations } from './conversations.js';
+import { ALLOWED_MENTIONS, isAddressedToBot, safeName } from './mentions.js';
 
 captureConsole();
 
@@ -77,10 +79,13 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Channel],
+  allowedMentions: ALLOWED_MENTIONS,
 });
 
+logClientErrors(client);
+
 // history key -> [{ role, content }]; the key is channelId, or channelId:userId when historyScope is 'user'
-const histories = new Map();
+const conversations = createConversations();
 const stats = { startedAt: Date.now(), replies: 0, errors: 0, inputTokens: 0, outputTokens: 0 };
 const activity = []; // newest first
 
@@ -105,7 +110,7 @@ function botInfo(msg) {
   const recent = activity.filter((a) => !a.error).slice(0, 10);
   const avgMs = recent.length ? recent.reduce((n, a) => n + a.ms, 0) / recent.length : 0;
   const up = Math.floor((Date.now() - stats.startedAt) / 60000);
-  const kept = histories.get(historyKey(msg))?.length ?? 0;
+  const kept = conversations.get(historyKey(msg)).length;
   const total = stats.inputTokens + stats.outputTokens;
   return [
     'Bot info',
@@ -141,7 +146,7 @@ const COMMANDS = {
   reset: {
     about: 'clear your conversation history',
     run: (msg) => {
-      histories.delete(historyKey(msg));
+      conversations.reset(historyKey(msg));
       return 'Conversation reset.';
     },
   },
@@ -171,8 +176,7 @@ client.once('clientReady', (c) => {
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
   const isDM = !msg.guild;
-  const mentioned = msg.mentions.has(client.user);
-  if (!isDM && !mentioned) return;
+  if (!isAddressedToBot(msg, client.user)) return;
   const { allowedChannels } = getConfig();
   if (!isDM && allowedChannels.length && !allowedChannels.includes(msg.channelId)) return; // silently ignore other channels
 
@@ -181,7 +185,8 @@ client.on('messageCreate', async (msg) => {
 
   if (prompt.startsWith('--')) {
     const name = prompt.slice(2).split(/\s/)[0].toLowerCase();
-    const reply = Object.hasOwn(COMMANDS, name) ? COMMANDS[name].run(msg) : `Unknown command: --${name.slice(0, 30)}\nType --help to see all commands.`;
+    // the unknown name is echoed back, so it is reduced to harmless characters (it cannot close the code block or carry a mention)
+    const reply = Object.hasOwn(COMMANDS, name) ? COMMANDS[name].run(msg) : `Unknown command: --${safeName(name)}\nType --help to see all commands.`;
     await msg.reply(codeBlock(reply)).catch(() => {});
     if (getConfig().logChat) logChat({ time: Date.now(), kind: 'command', user: msg.author.username, userId: msg.author.id, channel: msg.channelId, dm: isDM, prompt, reply });
     return;
@@ -200,9 +205,15 @@ client.on('messageCreate', async (msg) => {
   }
   lastAsked.set(msg.author.id, Date.now());
 
-  const key = historyKey(msg); // fixed now so a settings change mid-reply can't split the conversation
-  const history = histories.get(key) ?? [];
-  history.push({ role: 'user', content: prompt });
+  // Questions in one conversation are answered one at a time, in order (see conversations.js)
+  const key = historyKey(msg); // fixed now so a settings change while waiting can't split the conversation
+  await conversations.run(key, () => answerQuestion(msg, prompt, isDM, key));
+});
+
+async function answerQuestion(msg, prompt, isDM, key) {
+  const config = getConfig();
+  const epoch = conversations.epoch(key); // if the conversation is reset while the model works, this reply is not saved
+  const history = [...conversations.get(key), { role: 'user', content: prompt }];
 
   const started = Date.now();
   const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null, toolCalls: [] };
@@ -227,16 +238,14 @@ client.on('messageCreate', async (msg) => {
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
     answer = reply;
-    history.push({ role: 'assistant', content: reply });
     if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
-    histories.set(key, history.slice(-getConfig().historyLimit));
+    conversations.save(key, [...history, { role: 'assistant', content: answer }], epoch, getConfig().historyLimit);
 
     const [first, ...rest] = split(reply || '(empty response)');
     await msg.reply(first);
     for (const part of rest) await msg.channel.send(part);
     stats.replies++;
   } catch (err) {
-    history.pop();
     console.error(err);
     stats.errors++;
     entry.error = err.message.slice(0, 120);
@@ -254,7 +263,7 @@ client.on('messageCreate', async (msg) => {
       inputTokens: entry.inputTokens, outputTokens: entry.outputTokens, calls: entry.timing?.calls ?? 0, tools: usage.toolCalls.map((c) => c.name), toolCalls: usage.toolCalls, error: errorText,
     });
   }
-});
+}
 
 startWeb({
   getStatus: () => ({
@@ -269,7 +278,7 @@ startWeb({
     outputTokens: stats.outputTokens,
     activity,
   }),
-  clearHistory: () => histories.clear(),
+  clearHistory: () => conversations.clear(),
   reconnectMcp: () => syncTools({ force: true }),
 });
 
@@ -280,4 +289,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN).catch((err) => {
+  console.error('Discord login failed:', err.message);
+  process.exit(1);
+});

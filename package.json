@@ -10,7 +10,7 @@
     "bot:start": "./bot.sh start",
     "bot:stop": "./bot.sh stop",
     "dev": "node --watch --env-file=.env src/index.js",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20.6"
