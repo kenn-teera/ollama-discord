@@ -95,7 +95,8 @@
         <h2>Limits</h2>
         <p class="desc">Memory and effort per reply.</p>
         <div class="grid">
-          <div><label for="historyLimit">History <span class="hint">(messages per channel)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
+          <div><label for="historyScope">History kept <span class="hint">(who shares a conversation)</span></label><select id="historyScope"><option value="user">Per user (private)</option><option value="channel">Per channel (shared)</option></select></div>
+          <div><label for="historyLimit">History <span class="hint">(messages kept)</span></label><input type="number" id="historyLimit" min="1" max="50"></div>
           <div><label for="numCtx">Context size <span class="hint">(tokens; more = more RAM)</span></label><input type="number" id="numCtx" min="1024" max="32768" step="1024"></div>
           <div><label for="maxToolRounds">Tool rounds <span class="hint">(calls before it must answer)</span></label><input type="number" id="maxToolRounds" min="1" max="8"></div>
         </div>
@@ -202,7 +203,7 @@ function render(s, fillForm) {
     const names = s.models.includes(s.config.model) ? s.models : [s.config.model, ...s.models];
     for (const n of names) { const o = el('option', n); o.value = n; sel.append(o); }
     sel.value = s.config.model;
-    for (const k of ['systemPrompt', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
+    for (const k of ['systemPrompt', 'historyScope', 'historyLimit', 'numCtx', 'temperature', 'maxToolRounds']) $(k).value = s.config[k];
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
   }
@@ -228,7 +229,7 @@ $('form').addEventListener('submit', async (e) => {
   try {
     await api('/api/config', {
       model: $('model').value, systemPrompt: $('systemPrompt').value,
-      historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
+      historyScope: $('historyScope').value, historyLimit: Number($('historyLimit').value), numCtx: Number($('numCtx').value),
       temperature: Number($('temperature').value), maxToolRounds: Number($('maxToolRounds').value),
       mcpServers: [...document.querySelectorAll('#mcpList input:checked')].map((i) => i.value),
       searchEnabled: $('searchEnabled').checked, paused: $('paused').checked,
