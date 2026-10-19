@@ -12,11 +12,33 @@ const ANSWER_INSTRUCTION = [
 ].join(' ');
 
 // num_ctx: Ollama's default window is too small for tool results.
+// Some models (e.g. gemma3) cannot call tools and Ollama rejects the request if tools are sent. Ask once per model.
+const toolSupport = new Map();
+export async function supportsTools(model) {
+  if (toolSupport.has(model)) return toolSupport.get(model);
+  try {
+    const res = await fetch(`${HOST}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const caps = (await res.json()).capabilities;
+    if (Array.isArray(caps)) {
+      toolSupport.set(model, caps.includes('tools'));
+      return toolSupport.get(model);
+    }
+  } catch {
+    // Ollama unreachable or older version without capabilities: fall through and try with tools
+  }
+  return true;
+}
+
 // `usage` (optional) accumulates Ollama's token counts: input = prompt tokens, output = generated tokens.
 async function request(messages, tools, usage) {
   const { model, numCtx, temperature } = getConfig();
   const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature } };
-  if (tools?.length) body.tools = tools;
+  if (tools?.length && (await supportsTools(model))) body.tools = tools;
   const res = await fetch(`${HOST}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

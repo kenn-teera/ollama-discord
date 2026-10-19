@@ -79,7 +79,7 @@
         <h2>Model</h2>
         <p class="desc">Which Ollama model answers, and how freely it writes.</p>
         <div class="grid">
-          <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select></div>
+          <div><label for="model">Model <span class="hint">(installed in Ollama)</span></label><select id="model"></select><div class="hint" id="noTools" hidden style="margin-top:6px;color:var(--warn)"></div></div>
           <div><label for="temperature">Temperature <span class="hint">(0 precise – 2 creative)</span></label><input type="number" id="temperature" min="0" max="2" step="0.1"></div>
         </div>
       </div>
@@ -195,7 +195,7 @@ function render(s, fillForm) {
     pill('Up ' + fmtUptime(s.uptimeSeconds)),
     pill(`${s.replies} replies · ${s.errors} errors`),
     pill(`${fmtNum(s.inputTokens + s.outputTokens)} tokens`, undefined, `Since start. In: ${s.inputTokens.toLocaleString()} (prompt + history + tool results). Out: ${s.outputTokens.toLocaleString()} (generated).`),
-    pill(s.tools.length ? `${s.tools.length} tools` : 'no tools'),
+    pill(!s.modelSupportsTools ? 'tools unused' : s.tools.length ? `${s.tools.length} tools` : 'no tools'),
   );
   if (fillForm) {
     const sel = $('model'); sel.replaceChildren();
@@ -206,6 +206,8 @@ function render(s, fillForm) {
     $('searchEnabled').checked = s.config.searchEnabled;
     $('paused').checked = s.config.paused;
   }
+  $('noTools').hidden = s.modelSupportsTools;
+  $('noTools').textContent = `${s.config.model} cannot call tools, so search and MCP servers are skipped (it answers from its own knowledge).`;
   renderMcp(s.mcpServers, fillForm);
   renderActivity(s.activity);
 }
