@@ -34,9 +34,6 @@ The bot connects to an MCP search server and lets the model call it when it need
 ```
 Then put this in `.env` and run `./bot.sh restart`:
 ```
-MCP_COMMAND=npx
-MCP_ARGS=-y mcp-searxng
-MCP_ENV_KEYS=SEARXNG_URL
 SEARXNG_URL=http://127.0.0.1:8888
 ```
 `./bot.sh start` starts SearXNG automatically (opening Docker Desktop if needed) and `./bot.sh stop` stops it again, as long as `SEARXNG_URL` is set in `.env`. SearXNG combines several engines; if some are blocked at your IP it uses the others.
@@ -62,10 +59,10 @@ The "MCP servers" list shows every server the bot knows about with a live status
 
 The list comes from three places (later wins on the same id):
 1. built in: `searxng` (needs `SEARXNG_URL` in `.env`; the dashboard shows what is missing)
-2. `env`: the single server described by `MCP_COMMAND` / `MCP_ARGS` / `MCP_ENV_KEYS` in `.env`; if set it is selected by default, otherwise `searxng` is
+2. `env` (optional, older way): one server described by `MCP_COMMAND` / `MCP_ARGS` / `MCP_ENV_KEYS` in `.env`. Only appears if `MCP_COMMAND` is set; don't set it for SearXNG, as that would duplicate the built-in `searxng` entry and double every search tool in the prompt. If set, it is selected by default, otherwise `searxng` is
 3. your own `mcp-servers.json` (copy `mcp-servers.example.json`; re-read when the file changes, no restart needed):
    ```json
-   { "servers": [ { "id": "time", "label": "Time", "description": "...", "command": "uvx", "args": ["mcp-server-time"], "envKeys": [] } ] }
+   { "servers": [ { "id": "time", "label": "Time", "description": "...", "command": ".venv/bin/mcp-server-time", "args": ["--local-timezone=Asia/Bangkok"], "envKeys": [] } ] }
    ```
    `envKeys` lists the `.env` variables forwarded to that server; nothing else from `.env` (such as the Discord token) is passed on.
 
