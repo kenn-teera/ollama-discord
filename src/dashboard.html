@@ -124,7 +124,7 @@
   <section class="tab" id="tab-activity" hidden>
     <div class="card">
       <h2>Recent activity</h2>
-      <p class="desc">Last 50 messages, kept in memory only.</p>
+      <p class="desc">Last 50 messages, kept in memory only. Tokens are as counted by Ollama: <b>in</b> = prompt, history and tool results; <b>out</b> = generated text. Replies that use tools make several model calls, so they cost more.</p>
       <div class="scroll" id="activity"></div>
     </div>
   </section>
@@ -138,11 +138,13 @@ const $ = (id) => document.getElementById(id);
 let dirty = false, defaultPrompt = '', toastTimer;
 
 function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
-function pill(text, dot) {
+function pill(text, dot, title) {
   const p = el('span', undefined, 'pill');
+  if (title) p.title = title;
   if (dot !== undefined) p.append(el('span', '', 'dot' + (dot ? ' on' : '')));
   p.append(document.createTextNode(text)); return p;
 }
+function fmtNum(n) { return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
 function fmtUptime(s) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; }
 function toast(text, ok) { const t = $('toast'); t.textContent = text; t.className = 'show ' + (ok ? 'ok' : 'err'); clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 3500); }
 function setDirty(v) { dirty = v; $('bar').classList.toggle('show', v); }
@@ -174,11 +176,11 @@ function renderActivity(list) {
   const box = $('activity');
   if (!list.length) { box.replaceChildren(el('div', 'No messages yet.', 'empty')); return; }
   const t = el('table'), head = el('tr');
-  for (const h of ['Time', 'User', 'Message', 'Tools', 'Took', 'Result']) head.append(el('th', h));
+  for (const h of ['Time', 'User', 'Message', 'Tokens in / out', 'Tools', 'Took', 'Result']) head.append(el('th', h));
   t.append(head);
   for (const a of list) {
     const r = el('tr');
-    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok', a.error ? 'bad' : ''));
+    r.append(el('td', new Date(a.time).toLocaleTimeString()), el('td', a.user), el('td', a.prompt), el('td', a.error ? '—' : `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}`), el('td', a.usedTools ? 'yes' : '—'), el('td', (a.ms / 1000).toFixed(1) + 's'), el('td', a.error ? 'error: ' + a.error : 'ok', a.error ? 'bad' : ''));
     t.append(r);
   }
   box.replaceChildren(t);
@@ -192,6 +194,7 @@ function render(s, fillForm) {
     pill(s.ollamaOnline ? 'Ollama online' : 'Ollama unreachable', s.ollamaOnline),
     pill('Up ' + fmtUptime(s.uptimeSeconds)),
     pill(`${s.replies} replies · ${s.errors} errors`),
+    pill(`${fmtNum(s.inputTokens + s.outputTokens)} tokens`, undefined, `Since start. In: ${s.inputTokens.toLocaleString()} (prompt + history + tool results). Out: ${s.outputTokens.toLocaleString()} (generated).`),
     pill(s.tools.length ? `${s.tools.length} tools` : 'no tools'),
   );
   if (fillForm) {

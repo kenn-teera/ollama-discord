@@ -73,7 +73,7 @@ const client = new Client({
 
 // channelId -> [{ role, content }]
 const histories = new Map();
-const stats = { startedAt: Date.now(), replies: 0, errors: 0 };
+const stats = { startedAt: Date.now(), replies: 0, errors: 0, inputTokens: 0, outputTokens: 0 };
 const activity = []; // newest first
 
 function record(entry) {
@@ -116,19 +116,23 @@ client.on('messageCreate', async (msg) => {
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
-  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0 };
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0 };
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
-    let reply;
+    let reply, usage;
     try {
-      ({ content: reply, usedTools: entry.usedTools } = await chat(
+      ({ content: reply, usedTools: entry.usedTools, usage } = await chat(
         [{ role: 'system', content: config.systemPrompt }, ...history],
         { tools: currentTools(), runTool },
       ));
     } finally {
       clearInterval(typing);
     }
+    entry.inputTokens = usage.input;
+    entry.outputTokens = usage.output;
+    stats.inputTokens += usage.input;
+    stats.outputTokens += usage.output;
     history.push({ role: 'assistant', content: reply });
     if (entry.usedTools) reply = `(search) ${reply}`;
     histories.set(msg.channelId, history.slice(-getConfig().historyLimit));
@@ -157,6 +161,8 @@ startWeb({
     uptimeSeconds: Math.floor((Date.now() - stats.startedAt) / 1000),
     replies: stats.replies,
     errors: stats.errors,
+    inputTokens: stats.inputTokens,
+    outputTokens: stats.outputTokens,
     activity,
   }),
   clearHistory: () => histories.clear(),
