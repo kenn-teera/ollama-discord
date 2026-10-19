@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { getConfig, updateConfig, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import { HOST as OLLAMA_HOST, supportsTools, supportsThinking } from './ollama.js';
+import { systemStats } from './system.js';
 
 const HOST = process.env.WEB_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.WEB_PORT ?? 8787);
@@ -67,6 +68,15 @@ export function startWeb(api) {
 
       const url = new URL(req.url, 'http://x');
       if (req.method === 'GET' && url.pathname === '/') return send(res, 200, PAGE, 'text/html');
+
+      if (req.method === 'GET' && url.pathname === '/api/monitor') {
+        // Models Ollama currently holds in memory (size = bytes in memory, size_vram = part of it on the GPU).
+        const loaded = await fetch(`${OLLAMA_HOST}/api/ps`, { signal: AbortSignal.timeout(2000) })
+          .then((r) => r.json())
+          .then((d) => d.models.map((m) => ({ name: m.name, size: m.size, sizeVram: m.size_vram, context: m.context_length, expiresAt: m.expires_at })))
+          .catch(() => null);
+        return send(res, 200, { system: await systemStats(), loaded });
+      }
 
       if (req.method === 'GET' && url.pathname === '/api/state') {
         const models = await installedModels();

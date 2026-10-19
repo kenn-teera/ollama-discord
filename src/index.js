@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials } from 'discord.js';
+import { ActivityType, Client, GatewayIntentBits, Partials } from 'discord.js';
 import { chat } from './ollama.js';
 import { syncMcp, mcpTools, mcpStatus, callTool, closeMcp } from './mcp.js';
 import { fetchTool, fetchUrl } from './fetch.js';
@@ -87,10 +87,47 @@ function split(text) {
   return chunks;
 }
 
+// Command replies (!reset, !info) are sent in a code block so they stay monospaced and aligned.
+const codeBlock = (text) => `\`\`\`\n${text}\n\`\`\``;
+
+// Reply to !info: public-safe status (no prompt, channel IDs, tokens or commands).
+function botInfo(msg) {
+  const config = getConfig();
+  const tools = currentTools().map((t) => t.function.name);
+  const recent = activity.filter((a) => !a.error).slice(0, 10);
+  const avgMs = recent.length ? recent.reduce((n, a) => n + a.ms, 0) / recent.length : 0;
+  const up = Math.floor((Date.now() - stats.startedAt) / 60000);
+  const kept = histories.get(historyKey(msg))?.length ?? 0;
+  const total = stats.inputTokens + stats.outputTokens;
+  return [
+    'Bot info',
+    `Model: ${config.model}${config.thinking ? ' (thinking on)' : ''}`,
+    `Status: ${config.paused ? 'paused by admin' : 'online'}`,
+    `Tools: ${tools.length ? `${tools.length} (${tools.slice(0, 5).join(', ')}${tools.length > 5 ? ', ...' : ''})` : 'off'}`,
+    `Your conversation: ${kept} message${kept === 1 ? '' : 's'} kept (up to ${config.historyLimit}, ${config.historyScope === 'user' ? 'private to you' : 'shared in this channel'})`,
+    `Up ${Math.floor(up / 60)}h ${up % 60}m | ${stats.replies} ${stats.replies === 1 ? 'reply' : 'replies'}, ${stats.errors} ${stats.errors === 1 ? 'error' : 'errors'}${recent.length ? ` | avg reply ${(avgMs / 1000).toFixed(1)}s` : ''} | ${total.toLocaleString()} tokens used`,
+    config.userCooldown ? `Cooldown: ${config.userCooldown}s between questions` : null,
+    'Commands: !reset clears your conversation, !info shows this.',
+  ].filter(Boolean).join('\n');
+}
+
 // 'user': each person has their own conversation in a channel; 'channel': everyone in the channel shares one.
 const historyKey = (msg) => (getConfig().historyScope === 'user' ? `${msg.channelId}:${msg.author.id}` : msg.channelId);
 
+// Custom Discord status text; only sent when it changed (Discord rate-limits presence updates).
+let shownStatus = null;
+function applyStatus() {
+  const text = getConfig().botStatus;
+  if (!client.isReady() || text === shownStatus) return;
+  shownStatus = text;
+  client.user.setPresence({ activities: text ? [{ name: 'custom', type: ActivityType.Custom, state: text }] : [] });
+}
+onConfigChange(applyStatus);
+
+const lastAsked = new Map(); // userId -> time of last accepted question, for the cooldown
+
 client.once('clientReady', (c) => {
+  applyStatus();
   console.log(`Logged in as ${c.user.tag}, using model ${getConfig().model}, tools: ${currentTools().map((t) => t.function.name).join(', ') || 'none'}`);
 });
 
@@ -99,13 +136,20 @@ client.on('messageCreate', async (msg) => {
   const isDM = !msg.guild;
   const mentioned = msg.mentions.has(client.user);
   if (!isDM && !mentioned) return;
+  const { allowedChannels } = getConfig();
+  if (!isDM && allowedChannels.length && !allowedChannels.includes(msg.channelId)) return; // silently ignore other channels
 
   const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
   if (!prompt) return;
 
-  if (prompt === '!reset') {
+  const command = prompt.toLowerCase();
+  if (command === '!reset') {
     histories.delete(historyKey(msg));
-    await msg.reply('Conversation reset.');
+    await msg.reply(codeBlock('Conversation reset.'));
+    return;
+  }
+  if (command === '!info') {
+    await msg.reply(codeBlock(botInfo(msg))).catch(() => {});
     return;
   }
 
@@ -115,12 +159,19 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
+  const wait = Math.ceil(((lastAsked.get(msg.author.id) ?? 0) + config.userCooldown * 1000 - Date.now()) / 1000);
+  if (wait > 0) {
+    await msg.reply(`Please wait ${wait}s before asking again.`).catch(() => {});
+    return;
+  }
+  lastAsked.set(msg.author.id, Date.now());
+
   const key = historyKey(msg); // fixed now so a settings change mid-reply can't split the conversation
   const history = histories.get(key) ?? [];
   history.push({ role: 'user', content: prompt });
 
   const started = Date.now();
-  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0 };
+  const entry = { time: started, user: msg.author.username, prompt: prompt.slice(0, 80), usedTools: false, ms: 0, inputTokens: 0, outputTokens: 0, timing: null };
   try {
     await msg.channel.sendTyping();
     const typing = setInterval(() => msg.channel.sendTyping().catch(() => {}), 8000);
@@ -135,10 +186,11 @@ client.on('messageCreate', async (msg) => {
     }
     entry.inputTokens = usage.input;
     entry.outputTokens = usage.output;
+    entry.timing = { loadMs: Math.round(usage.loadMs), promptMs: Math.round(usage.promptMs), evalMs: Math.round(usage.evalMs), toolMs: usage.toolMs, calls: usage.calls };
     stats.inputTokens += usage.input;
     stats.outputTokens += usage.output;
     history.push({ role: 'assistant', content: reply });
-    if (entry.usedTools) reply = `(search) ${reply}`;
+    if (entry.usedTools && config.showSearchTag) reply = `(search) ${reply}`;
     histories.set(key, history.slice(-getConfig().historyLimit));
 
     const [first, ...rest] = split(reply || '(empty response)');

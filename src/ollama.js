@@ -39,8 +39,8 @@ export const supportsThinking = async (model) => (await capabilities(model)).inc
 
 // `usage` (optional) accumulates Ollama's token counts: input = prompt tokens, output = generated tokens.
 async function request(messages, tools, usage) {
-  const { model, numCtx, temperature, thinking } = getConfig();
-  const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature } };
+  const { model, numCtx, temperature, thinking, topP, numPredict, keepAlive } = getConfig();
+  const body = { model, messages, stream: false, options: { num_ctx: numCtx, temperature, top_p: topP, ...(numPredict > 0 && { num_predict: numPredict }) }, keep_alive: keepAlive };
   if (tools?.length && (await supportsTools(model))) body.tools = tools;
   // Thinking models reason before answering (slow, many extra tokens); default is off for a chat bot.
   if (await supportsThinking(model)) body.think = thinking;
@@ -54,16 +54,22 @@ async function request(messages, tools, usage) {
   if (usage) {
     usage.input += data.prompt_eval_count ?? 0;
     usage.output += data.eval_count ?? 0;
+    // Ollama reports nanoseconds: time to load the model, read the prompt and generate the answer.
+    usage.loadMs += (data.load_duration ?? 0) / 1e6;
+    usage.promptMs += (data.prompt_eval_duration ?? 0) / 1e6;
+    usage.evalMs += (data.eval_duration ?? 0) / 1e6;
+    usage.calls++;
   }
   return data.message;
 }
 
 // Runs the model; if it requests tools, executes them via runTool and feeds results back.
-// Returns { content, usedTools, usage: { input, output } } (tokens summed over every model call for this reply).
+// Returns { content, usedTools, usage } where usage sums every model call for this reply: tokens (input/output),
+// milliseconds (loadMs/promptMs/evalMs/toolMs) and the number of model calls.
 export async function chat(messages, { tools, runTool } = {}) {
   const convo = [...messages];
   let usedTools = false;
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, loadMs: 0, promptMs: 0, evalMs: 0, toolMs: 0, calls: 0 };
   const maxRounds = getConfig().maxToolRounds;
   for (let round = 0; round < maxRounds; round++) {
     const msg = await request(convo, tools, usage);
@@ -74,11 +80,13 @@ export async function chat(messages, { tools, runTool } = {}) {
       const { name, arguments: args } = call.function;
       console.log(`tool call: ${name}`, JSON.stringify(args));
       let result;
+      const toolStart = Date.now();
       try {
         result = await runTool(name, args);
       } catch (err) {
         result = `Error: ${err.message}`;
       }
+      usage.toolMs += Date.now() - toolStart;
       convo.push({ role: 'tool', tool_name: name, content: result });
     }
     convo.push({ role: 'system', content: ANSWER_INSTRUCTION });
